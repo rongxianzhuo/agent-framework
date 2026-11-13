@@ -52,6 +52,9 @@ Requires Node 22 or later. TypeScript consumers need `@types/node`; the
 declarations use `AbortSignal`, `ReadableStream` and `fetch`, which is why the
 package needs no `DOM` lib.
 
+The full guide, including how to write your own adapter and what to watch out
+for, is in [docs/integration.md](docs/integration.md).
+
 ## Usage
 
 ```ts
@@ -154,6 +157,14 @@ const client = fauxClient({
 `fauxClient` scripts an `LLMClient` and streams it exactly as a real adapter
 does. `runConformance(client, { model })` runs six checks against any adapter —
 including one you write yourself — and returns pass/fail data.
+
+## Where to look next
+
+- **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
+  and the things that surprise people.
+- **`examples/file-agent/index.mjs`** — a complete agent (list and read files,
+  confined to one directory, with context trimming and streaming) that runs
+  offline in one command: `npm run example`.
 
 ## Status
 

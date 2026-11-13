@@ -85,6 +85,8 @@ step("inspecting the tarball contents", () => {
     "package/package.json",
     "package/README.md",
     "package/LICENSE",
+    "package/docs/integration.md",
+    "package/examples/file-agent/index.mjs",
     "package/dist/index.js",
     "package/dist/index.d.ts",
     "package/dist/openai.js",
@@ -173,7 +175,7 @@ step("type-checking a TypeScript consumer", () => {
           // Not skipped: the published declarations must be clean on their own.
           skipLibCheck: false,
         },
-        include: ["use-core.ts"],
+        include: ["use-core.ts", "doc-surface.ts"],
       },
       null,
       2,

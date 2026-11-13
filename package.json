@@ -31,7 +31,9 @@
   "files": [
     "dist",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "docs/integration.md",
+    "examples"
   ],
   "sideEffects": false,
   "scripts": {
@@ -43,7 +45,10 @@
     "smoke:openai": "npm run build && node scripts/smoke-openai.mjs",
     "check": "npm run invariants && npm run typecheck && npm run lint && npm run test",
     "smoke:hooks": "npm run build && node scripts/smoke-hooks.mjs",
-    "check:package": "node scripts/check-package.mjs"
+    "check:package": "node scripts/check-package.mjs",
+    "example": "node examples/file-agent/index.mjs",
+    "check:example": "npm run build && node scripts/check-example.mjs",
+    "check:all": "npm run check && npm run check:example && npm run check:package"
   },
   "dependencies": {},
   "devDependencies": {
