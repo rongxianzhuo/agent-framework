@@ -1,0 +1,37 @@
+{
+  "name": "agent-core",
+  "version": "0.1.0",
+  "description": "Minimal, UI-free agent runtime: messages, tools, and a loop. Designed to be embedded as a sub-module of larger agents.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "oxlint": "^1.9.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
