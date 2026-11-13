@@ -165,6 +165,25 @@ export type StopReason =
   | "error";
 
 /**
+ * How hard the model should think before answering.
+ *
+ * Models that reason spend output tokens on reasoning before writing anything,
+ * so this is a cost knob as much as a quality one: on DeepSeek a short factual
+ * question cost 124 tokens at the default effort and 24 with reasoning off.
+ *
+ * `"none"` is not in DeepSeek's documented list, but it is not an invention
+ * either: it turns reasoning off, which the documentation offers through
+ * `thinking: { type: "disabled" }`. The adapter translates it to that form, so
+ * the wire stays on the documented path while callers get one vocabulary.
+ *
+ * The remaining values are passed through unvalidated. A typo reaches the
+ * provider and comes back as an invalid-request error naming the allowed values,
+ * which is a better error message than a local whitelist could produce, and it
+ * keeps new effort levels working without a release here.
+ */
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+
+/**
  * Why a whole `run()` ended.
  *
  * Kept separate from `StopReason` because a run spans several responses: "the

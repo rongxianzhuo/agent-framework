@@ -154,7 +154,37 @@ await scenario(
   ],
 );
 
-// 5. Reasoning is shown above the answer, on its own prefix, and can be turned off.
+// 5. REASONING_EFFORT reaches the request, and an empty value is treated as unset
+//    (an empty string is still a set variable, and `reasoning_effort: ""` is a 422).
+await scenario(
+  "forwards REASONING_EFFORT",
+  () => converse(["hello"], { REASONING_EFFORT: "low" }),
+  (output) => [
+    ["the effort on the wire", received[0]?.reasoning_effort === "low"],
+    ["the setting to be announced", output.includes("effort: low")],
+  ],
+);
+
+await scenario(
+  "turns reasoning off through the thinking field",
+  () => converse(["hello"], { REASONING_EFFORT: "none" }),
+  () => [
+    ["no reasoning_effort", !("reasoning_effort" in (received[0] ?? {}))],
+    ["the documented thinking field instead", JSON.stringify(received[0]?.thinking) === '{"type":"disabled"}'],
+  ],
+);
+
+await scenario(
+  "ignores an empty REASONING_EFFORT",
+  () => converse(["hello"], { REASONING_EFFORT: "" }),
+  (output) => [
+    ["nothing about effort on the wire", !("reasoning_effort" in (received[0] ?? {}))],
+    ["no thinking override either", !("thinking" in (received[0] ?? {}))],
+    ["no effort to be announced", !output.includes("effort:")],
+  ],
+);
+
+// 6. Reasoning is shown above the answer, on its own prefix, and can be turned off.
 await scenario(
   "shows reasoning above the answer",
   () => converse(["hello"], { SHOW_THINKING: "1" }),
@@ -175,7 +205,7 @@ await scenario(
   ],
 );
 
-// 6. Without a key it says so, instead of trying and failing with a 401.
+// 7. Without a key it says so, instead of trying and failing with a 401.
 {
   const { output, code } = await converse(["hello"], { OPENAI_API_KEY: "" });
   const checks = [

@@ -123,6 +123,7 @@ export async function runOnce(): Promise<Usage> {
     parallelTools: true,
     maxOutputTokens: 512,
     temperature: 0.2,
+    reasoningEffort: "low",
     hooks,
     providerOptions: {},
     onEvent: (event) => {

@@ -203,6 +203,79 @@ describe("request", () => {
     expect(calls[0]?.body).toMatchObject({ max_completion_tokens: 100 });
   });
 
+  it("sends reasoning_effort from the request", async () => {
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    await run({
+      client: client([{ body: sse([textChunk("a", "stop")]) }], calls),
+      model: "m",
+      messages: [hello],
+      reasoningEffort: "low",
+    });
+    expect(calls[0]?.body).toMatchObject({ reasoning_effort: "low" });
+  });
+
+  it("turns reasoning off through the documented thinking field", async () => {
+    // `reasoning_effort: "none"` is accepted by DeepSeek but undocumented; the
+    // documented way to disable reasoning is the `thinking` object.
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    await run({
+      client: client([{ body: sse([textChunk("a", "stop")]) }], calls),
+      model: "m",
+      messages: [hello],
+      reasoningEffort: "none",
+    });
+
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(body["thinking"]).toEqual({ type: "disabled" });
+    expect("reasoning_effort" in body).toBe(false);
+  });
+
+  it("uses the adapter default effort when the request names none", async () => {
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    await run({
+      client: client([{ body: sse([textChunk("a", "stop")]) }], calls, { reasoningEffort: "medium" }),
+      model: "m",
+      messages: [hello],
+    });
+    expect(calls[0]?.body).toMatchObject({ reasoning_effort: "medium" });
+  });
+
+  it("lets a per-request effort beat the adapter default", async () => {
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    await run({
+      client: client([{ body: sse([textChunk("a", "stop")]) }], calls, { reasoningEffort: "high" }),
+      model: "m",
+      messages: [hello],
+      reasoningEffort: "minimal",
+    });
+    expect(calls[0]?.body).toMatchObject({ reasoning_effort: "minimal" });
+  });
+
+  it("lets a per-request temperature beat bodyDefaults", async () => {
+    // Merging order: `bodyDefaults` is an adapter-wide setting and must not
+    // override a value the caller passed for this one call.
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    await run({
+      client: client([{ body: sse([textChunk("a", "stop")]) }], calls, { bodyDefaults: { temperature: 0.9 } }),
+      model: "m",
+      messages: [hello],
+      temperature: 0.1,
+    });
+    expect(calls[0]?.body).toMatchObject({ temperature: 0.1 });
+  });
+
+  it("still lets providerOptions beat everything", async () => {
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    await run({
+      client: client([{ body: sse([textChunk("a", "stop")]) }], calls, { reasoningEffort: "high" }),
+      model: "m",
+      messages: [hello],
+      reasoningEffort: "low",
+      providerOptions: { reasoning_effort: "max" },
+    });
+    expect(calls[0]?.body).toMatchObject({ reasoning_effort: "max" });
+  });
+
   it("merges providerOptions last so a per-request override wins", async () => {
     const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
     await run({

@@ -22,6 +22,11 @@
  * thinking mode produces a lot of it and watching it is half the point of
  * running a chat demo against a reasoning model. Set `SHOW_THINKING=0` to print
  * only the answers.
+ *
+ * `REASONING_EFFORT` sets how hard the model thinks. It is a cost knob: on a
+ * short factual question the same reply cost 124 tokens at the default effort and
+ * 24 with `REASONING_EFFORT=none`. Values: none, minimal, low, medium, high,
+ * xhigh, max, ultra — or unset to let the provider decide, which is `high`.
  */
 import { createInterface } from "node:readline";
 
@@ -48,6 +53,10 @@ const client = openaiClient({
   apiKey,
 });
 const model = process.env.OPENAI_MODEL ?? "deepseek-flash";
+// Truthiness, not `!== undefined`: an empty variable is still a set variable, and
+// sending `reasoning_effort: ""` is a 422 from DeepSeek.
+const reasoningEffort = process.env.REASONING_EFFORT || undefined;
+if (reasoningEffort !== undefined) process.stdout.write(`effort: ${reasoningEffort} | model: ${model}\n`);
 
 // Unset means on: an empty string is still a set variable, so this reads the
 // value rather than its presence.
@@ -92,6 +101,7 @@ for await (const line of rl) {
     client,
     model,
     messages,
+    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     onEvent: (event) => {
       if (event.type === "thinking_delta") {
         if (!showThinking) return;

@@ -36,7 +36,7 @@ import type { ChatCompletionChunk } from "openai/resources/chat/completions";
 import { MessageAccumulator } from "../../client.js";
 import { toNormalizedError } from "../../errors.js";
 import type { LLMClient, LLMEvent, LLMRequest } from "../../client.js";
-import type { NormalizedError, StopReason, Usage } from "../../types.js";
+import type { NormalizedError, ReasoningEffort, StopReason, Usage } from "../../types.js";
 import { mapFinishReason, toOpenAIMessages, toOpenAITools } from "./map.js";
 import type { ReasoningContentMode } from "./map.js";
 
@@ -90,7 +90,22 @@ export interface OpenAIAdapterOptions {
    * latter. Default is `max_tokens`.
    */
   maxTokensField?: "max_tokens" | "max_completion_tokens";
-  /** Extra top-level body fields, merged last. */
+  /**
+   * Default reasoning effort for every call. Per-request wins.
+   *
+   * Only meaningful for a model with a reasoning mode. `"none"` turns reasoning
+   * off entirely, which is the cheapest setting and, on DeepSeek, also the least
+   * accurate: reasoning and the answer share one token budget, so this trades
+   * quality for cost directly.
+   */
+  reasoningEffort?: ReasoningEffort;
+  /**
+   * Extra top-level body fields, applied before the portable request fields.
+   *
+   * Anything set in the request — `temperature`, `maxOutputTokens`,
+   * `reasoningEffort` — overrides the same key here, so a per-call value always
+   * beats an adapter-wide default.
+   */
   bodyDefaults?: Record<string, unknown>;
   /**
    * How to handle DeepSeek's `reasoning_content` echo.
@@ -127,6 +142,7 @@ export function openaiClient(options: OpenAIAdapterOptions): OpenAIAdapter {
   const includeUsage = options.includeUsage ?? true;
   const maxTokensField = options.maxTokensField ?? "max_tokens";
   const reasoningEcho = options.reasoningEcho ?? "when-present";
+  const defaultReasoningEffort = options.reasoningEffort;
 
   const sdk = new OpenAI({
     apiKey: options.apiKey ?? process.env["OPENAI_API_KEY"] ?? "",
@@ -159,12 +175,19 @@ export function openaiClient(options: OpenAIAdapterOptions): OpenAIAdapter {
         stream: true,
       };
       if (request.tools.length > 0) body["tools"] = toOpenAITools(request.tools);
+      if (includeUsage) body["stream_options"] = { include_usage: true };
+
+      // Order matters, and it is: adapter defaults, then the portable request
+      // fields, then the per-request escape hatch. `bodyDefaults` used to be
+      // merged *after* the request fields, which meant an adapter-wide
+      // `temperature` silently beat the one the caller passed for a single call.
+      if (options.bodyDefaults !== undefined) Object.assign(body, options.bodyDefaults);
       if (request.maxOutputTokens !== undefined) body[maxTokensField] = request.maxOutputTokens;
       if (request.temperature !== undefined) body["temperature"] = request.temperature;
-      if (includeUsage) body["stream_options"] = { include_usage: true };
-      if (options.bodyDefaults !== undefined) Object.assign(body, options.bodyDefaults);
-      // Per-request options win over adapter defaults: a caller overriding one
-      // parameter for one call should not have to rebuild the client.
+
+      const effort = request.reasoningEffort ?? defaultReasoningEffort;
+      if (effort !== undefined) applyReasoningEffort(body, effort);
+
       if (request.providerOptions !== undefined) Object.assign(body, request.providerOptions);
 
       const accumulator = new MessageAccumulator();
@@ -218,6 +241,23 @@ export function openaiClient(options: OpenAIAdapterOptions): OpenAIAdapter {
   };
 
   return adapter;
+}
+
+/**
+ * Put the effort on the wire.
+ *
+ * `"none"` goes out as `thinking: { type: "disabled" }` rather than as a
+ * `reasoning_effort` value: DeepSeek accepts `reasoning_effort: "none"` today but
+ * does not document it, while the `thinking` object is the documented way to turn
+ * reasoning off. Every other value rides `reasoning_effort` verbatim — the
+ * provider rejects an unknown one with a 422 that lists what it accepts.
+ */
+function applyReasoningEffort(body: Record<string, unknown>, effort: ReasoningEffort): void {
+  if (effort === "none") {
+    body["thinking"] = { type: "disabled" };
+    return;
+  }
+  body["reasoning_effort"] = effort;
 }
 
 // ---------------------------------------------------------------------------

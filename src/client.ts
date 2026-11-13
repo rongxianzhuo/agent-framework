@@ -25,6 +25,7 @@ import type {
   ContentBlock,
   Message,
   NormalizedError,
+  ReasoningEffort,
   StopReason,
   ToolCall,
   Usage,
@@ -71,9 +72,16 @@ export interface LLMRequest {
   maxOutputTokens?: number;
   temperature?: number;
   /**
+   * How hard to think before answering, for models that reason.
+   *
+   * Adapters for models without a reasoning mode ignore it, as an adapter is
+   * always free to ignore a request field it has no wire representation for.
+   */
+  reasoningEffort?: ReasoningEffort;
+  /**
    * Escape hatch for provider-specific parameters. The core never reads this;
-   * it exists so an adapter can expose, say, a reasoning effort setting without
-   * every other adapter having to grow a field it ignores.
+   * it exists so an adapter can take a parameter that has no place in the
+   * portable request shape.
    */
   providerOptions?: Record<string, unknown>;
 }

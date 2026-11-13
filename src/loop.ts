@@ -44,6 +44,7 @@ import type {
   AssistantMessage,
   Message,
   NormalizedError,
+  ReasoningEffort,
   RunStopReason,
   Usage,
 } from "./types.js";
@@ -97,6 +98,14 @@ export interface RunOptions {
 
   maxOutputTokens?: number;
   temperature?: number;
+  /**
+   * How hard to think before each answer in this run.
+   *
+   * Applies to every model call the run makes, including the ones that follow a
+   * tool result. Set it on a long tool-using run to keep reasoning from eating
+   * the budget on turns where a decision is straightforward.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Forwarded to the adapter untouched. */
   providerOptions?: Record<string, unknown>;
 }
@@ -137,6 +146,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     hooks: hookOptions,
     maxOutputTokens,
     temperature,
+    reasoningEffort,
     providerOptions,
   } = options;
 
@@ -182,6 +192,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     let request: LLMRequest = { model, messages: [...messages], tools: specs };
     if (maxOutputTokens !== undefined) request.maxOutputTokens = maxOutputTokens;
     if (temperature !== undefined) request.temperature = temperature;
+    if (reasoningEffort !== undefined) request.reasoningEffort = reasoningEffort;
     if (providerOptions !== undefined) request.providerOptions = providerOptions;
 
     // --- let the caller rewrite the request --------------------------------

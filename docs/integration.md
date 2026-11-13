@@ -194,6 +194,7 @@ const result = await run({
   parallelTools: true,           // default: true
   maxOutputTokens: 512,
   temperature: 0.2,
+  reasoningEffort: "low",        // for models that think before answering
   hooks,                         // see below
   onEvent: (event) => {},        // progress; awaited
   providerOptions: {},           // handed to the adapter untouched
@@ -211,6 +212,28 @@ interface RunResult {
   error?: NormalizedError;
 }
 ```
+
+### Reasoning effort
+
+Models with a reasoning mode spend output tokens thinking before they write
+anything. `reasoningEffort` is both a quality and a cost knob, and it is the one
+setting whose effect is large enough to be surprising: on DeepSeek, "9.11 and 9.8,
+which is greater?" cost 124 tokens at the default effort and 24 with reasoning
+off — a saving of about 80%, on a question the model then got wrong.
+
+```ts
+await run({ client, model, messages, reasoningEffort: "low" });
+```
+
+Accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` and
+`ultra`. Unset means the provider's default, which for DeepSeek is `high`. The
+value is not validated locally: a typo comes back from the provider as an
+invalid-request error that lists what it accepts, which is more useful than a
+whitelist of ours would be, and a new effort level works without a release here.
+
+`reasoningEffort` applies to every model call in a run, including the ones that
+follow a tool result. With a reasoning model and tools, reasoning is often the
+largest line item in the bill, so a long tool-using run is where setting it pays.
 
 `run` never throws for a model failure or a tool failure; both arrive as
 `stopReason: "error"` with `error` set. An exception escaping `run` means a bug —
@@ -528,6 +551,17 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
   sends an empty `reasoning_content` for that turn, which DeepSeek accepts where
   it rejects a missing field (measured on `deepseek-flash` and `deepseek-v4-pro`).
   `reasoningEcho: "never"` turns the field off for a gateway that refuses it.
+- **`temperature` does nothing while reasoning is on.** DeepSeek ignores
+  `temperature`, `presence_penalty` and `frequency_penalty` in thinking mode, and
+  says so, but it does not reject them — the request succeeds and the parameter is
+  silently dropped. If you tuned a temperature and the output did not change, this
+  is why. `top_p` is model-dependent: on `deepseek-flash` it only applies in
+  thinking mode and is clamped to 0.95–1.0.
+- **`extra_body` is a Python concept.** DeepSeek's docs show provider-specific
+  parameters inside `extra_body={"thinking": ...}`, which is how the Python SDK
+  takes unknown fields. The JavaScript SDK has no such wrapper — unknown top-level
+  fields pass straight through — so in TypeScript the same parameter goes at the
+  top level, or through `providerOptions`.
 - **A thinking model spends `max_tokens` on reasoning first.** Reasoning and the
   answer share one budget, so a cap that looks generous for prose can truncate
   the tool-call JSON before the model writes any. Size caps for thinking models

@@ -157,7 +157,7 @@ describe("a run without tools", () => {
     expect(requests[0]?.messages).toHaveLength(2);
   });
 
-  it("forwards maxOutputTokens, temperature and providerOptions", async () => {
+  it("forwards maxOutputTokens, temperature, reasoningEffort and providerOptions", async () => {
     const { client, requests } = scripted([{ text: "ok" }]);
 
     await run({
@@ -166,12 +166,28 @@ describe("a run without tools", () => {
       messages: [hello],
       maxOutputTokens: 512,
       temperature: 0.2,
-      providerOptions: { reasoningEffort: "low" },
+      reasoningEffort: "low",
+      providerOptions: { seed: 7 },
     });
 
     expect(requests[0]?.maxOutputTokens).toBe(512);
     expect(requests[0]?.temperature).toBe(0.2);
-    expect(requests[0]?.providerOptions).toEqual({ reasoningEffort: "low" });
+    expect(requests[0]?.reasoningEffort).toBe("low");
+    expect(requests[0]?.providerOptions).toEqual({ seed: 7 });
+  });
+
+  it("sends reasoningEffort on every model call in the run", async () => {
+    // A tool-using run makes several calls; the setting applies to each, not
+    // only the first.
+    const { client, requests } = scripted([
+      { toolCalls: [{ id: "c1", name: "echo", args: { text: "x" } }] },
+      { text: "done" },
+    ]);
+
+    await run({ client, model: "m", messages: [hello], tools: [echo], reasoningEffort: "minimal" });
+
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.reasoningEffort === "minimal")).toBe(true);
   });
 
   it("omits unset request fields rather than sending undefined", async () => {
@@ -181,6 +197,7 @@ describe("a run without tools", () => {
 
     expect("maxOutputTokens" in (requests[0] ?? {})).toBe(false);
     expect("temperature" in (requests[0] ?? {})).toBe(false);
+    expect("reasoningEffort" in (requests[0] ?? {})).toBe(false);
     expect("providerOptions" in (requests[0] ?? {})).toBe(false);
   });
 });

@@ -16,6 +16,10 @@ export {
   type OpenAIAdapterOptions,
 } from "./providers/openai/index.js";
 
+// Re-exported because the adapter's options use it, so a consumer tuning effort
+// from the openai entry point can name the type without also importing the core.
+export type { ReasoningEffort } from "./types.js";
+
 export {
   mapFinishReason,
   toOpenAIMessages,

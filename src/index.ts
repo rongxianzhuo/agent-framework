@@ -23,6 +23,7 @@ export type {
   Message,
   MessageRole,
   NormalizedError,
+  ReasoningEffort,
   RunEndEvent,
   RunStartEvent,
   RunStopReason,
