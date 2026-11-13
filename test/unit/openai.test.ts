@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { run, type Message } from "../../src/index.js";
+import { defineTool, run, textResult, type Message } from "../../src/index.js";
 import { openaiClient } from "../../src/openai.js";
 
 // ---------------------------------------------------------------------------
@@ -101,6 +101,13 @@ const toolChunk = (
 };
 
 const hello: Message = { role: "user", content: [{ type: "text", text: "hi" }] };
+
+/** The `messages` array from the request body of a recorded call. */
+function sentMessages(calls: { body: unknown }[]): Record<string, unknown>[] {
+  const body = calls[0]?.body as { messages?: Record<string, unknown>[] } | undefined;
+  if (body?.messages === undefined) throw new Error("the request body carried no messages");
+  return body.messages;
+}
 
 function client(responses: FakeResponse[], calls: Parameters<typeof fakeFetch>[1], extra: Partial<Parameters<typeof openaiClient>[0]> = {}) {
   return openaiClient({
@@ -205,6 +212,98 @@ describe("request", () => {
       providerOptions: { temperature: 0.1, seed: 7 },
     });
     expect(calls[0]?.body).toMatchObject({ temperature: 0.1, seed: 7 });
+  });
+
+  it("echoes reasoning_content on a tool-carrying request", async () => {
+    // DeepSeek's rule, and the reason the default is on: a request with `tools`
+    // must carry the reasoning of prior assistant turns.
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    const c = client([{ body: sse([textChunk("done", "stop")]) }], calls);
+    const tool = defineTool<{ path: string }>({
+      name: "read",
+      description: "Read a file.",
+      parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+      execute: (args) => textResult(`contents of ${args.path}`),
+    });
+
+    await run({
+      client: c,
+      model: "m",
+      messages: [
+        hello,
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", text: "The user wants the file contents." },
+            { type: "text", text: "Reading it." },
+          ],
+          toolCalls: [{ id: "call_1", name: "read", args: { path: "a.txt" } }],
+          stopReason: "toolUse",
+        },
+        { role: "toolResult", toolCallId: "call_1", toolName: "read", content: [{ type: "text", text: "contents" }], isError: false },
+      ],
+      tools: [tool],
+    });
+
+    const messages = sentMessages(calls);
+    expect(messages[1]).toMatchObject({
+      role: "assistant",
+      reasoning_content: "The user wants the file contents.",
+    });
+  });
+
+  it("does not echo reasoning_content when the request has no tools", async () => {
+    // Without `tools`, DeepSeek ignores the field and OpenAI may reject it.
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    const c = client([{ body: sse([textChunk("done", "stop")]) }], calls);
+
+    await run({
+      client: c,
+      model: "m",
+      messages: [
+        hello,
+        {
+          role: "assistant",
+          content: [{ type: "thinking", text: "private reasoning" }],
+          toolCalls: [],
+          stopReason: "stop",
+        },
+      ],
+    });
+
+    const messages = sentMessages(calls);
+    expect("reasoning_content" in (messages[1] ?? {})).toBe(false);
+  });
+
+  it("can be told not to echo reasoning at all", async () => {
+    const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
+    const c = client([{ body: sse([textChunk("done", "stop")]) }], calls, { reasoningEcho: "never" });
+
+    await run({
+      client: c,
+      model: "m",
+      messages: [
+        hello,
+        {
+          role: "assistant",
+          content: [{ type: "thinking", text: "private reasoning" }],
+          toolCalls: [{ id: "call_1", name: "read", args: { path: "a.txt" } }],
+          stopReason: "toolUse",
+        },
+        { role: "toolResult", toolCallId: "call_1", toolName: "read", content: [{ type: "text", text: "contents" }], isError: false },
+      ],
+      tools: [
+        defineTool<{ path: string }>({
+          name: "read",
+          description: "Read a file.",
+          parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+          execute: (args) => textResult(`contents of ${args.path}`),
+        }),
+      ],
+    });
+
+    const messages = sentMessages(calls);
+    expect("reasoning_content" in (messages[1] ?? {})).toBe(false);
   });
 
   it("rejects a missing base URL at construction", () => {

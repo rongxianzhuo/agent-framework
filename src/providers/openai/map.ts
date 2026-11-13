@@ -7,9 +7,15 @@
  * - The system prompt becomes a `system` message at the front. The core keeps it
  *   in the transcript like any other message; OpenAI wants it inline, so it is
  *   simply serialised in place, which preserves the caller's ordering.
- * - Thinking blocks are **dropped** on the way out. OpenAI does not accept
- *   reasoning content back and rejects unknown fields on some gateways. The
- *   transcript keeps them; only the wire loses them.
+ * - Thinking blocks are **dropped by default** on the way out. OpenAI does not
+ *   accept reasoning content back and rejects unknown fields on some gateways.
+ *   The transcript keeps them; only the wire loses them.
+ * - With `reasoningContent` set, they are sent back as `reasoning_content`
+ *   instead. DeepSeek requires exactly this whenever a request carries `tools`:
+ *   its thinking mode concatenates prior reasoning into context, and a replay
+ *   without the field is rejected with a 400. OpenAI's wire format has no
+ *   thinking blocks to begin with, so the default costs an OpenAI transcript
+ *   nothing.
  * - Tool results are `role: "tool"` messages keyed by `tool_call_id`, and OpenAI
  *   requires every `tool_call` to be answered. The loop guarantees that, so the
  *   mapping does not need to invent placeholders.
@@ -18,7 +24,7 @@
  *   counterpart; the model then sees the tool's error result and retries.
  */
 
-import type { Message, TextBlock } from "../../types.js";
+import type { Message, TextBlock, ThinkingBlock } from "../../types.js";
 import type { ToolSpec } from "../../client.js";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +42,8 @@ export type OpenAIMessage =
       role: "assistant";
       content: string | null;
       tool_calls?: OpenAIToolCall[];
+      /** DeepSeek thinking mode. Absent unless `reasoningContent` is requested. */
+      reasoning_content?: string;
     }
   | { role: "tool"; tool_call_id: string; content: string };
 
@@ -50,11 +58,39 @@ export interface OpenAITool {
   function: { name: string; description: string; parameters: unknown };
 }
 
-export function toOpenAIMessages(messages: readonly Message[]): OpenAIMessage[] {
-  return messages.map(toOpenAIMessage);
+/**
+ * How assistant reasoning is represented on the wire.
+ *
+ * - `"when-present"`: send `reasoning_content` only when the message has thinking.
+ * - `"always"`: also send an empty string when it has none. Measured on DeepSeek:
+ *   a tools-carrying request that replays an assistant tool turn without the
+ *   field is rejected with 400, while an empty string is accepted.
+ */
+export type ReasoningContentMode = "when-present" | "always";
+
+export interface ToOpenAIMessagesOptions {
+  /**
+   * Send assistant thinking blocks back as `reasoning_content`.
+   *
+   * DeepSeek requires it on every request that carries `tools`, for every prior
+   * assistant turn — not only the ones that made a tool call. Sending it to a
+   * provider that does not know the field is the risk, so the adapter decides
+   * whether to ask for it at all.
+   */
+  reasoningContent?: ReasoningContentMode;
 }
 
-function toOpenAIMessage(message: Message): OpenAIMessage {
+export function toOpenAIMessages(
+  messages: readonly Message[],
+  options: ToOpenAIMessagesOptions = {},
+): OpenAIMessage[] {
+  return messages.map((message) => toOpenAIMessage(message, options.reasoningContent));
+}
+
+function toOpenAIMessage(
+  message: Message,
+  reasoningContent: ReasoningContentMode | undefined,
+): OpenAIMessage {
   switch (message.role) {
     case "system":
       return { role: "system", content: textOf(message.content) };
@@ -96,6 +132,15 @@ function toOpenAIMessage(message: Message): OpenAIMessage {
         content: text === "" ? null : text,
       };
       if (toolCalls.length > 0) assistant.tool_calls = toolCalls;
+      if (reasoningContent !== undefined) {
+        const reasoning = thinkingOf(message.content);
+        // An empty string says "this turn had no reasoning, and I am telling you
+        // so" — which is what DeepSeek wants for a tool turn the caller built
+        // itself. `"when-present"` leaves the field off instead, so a transcript
+        // with no thinking stays byte-identical to what it was.
+        if (reasoning !== "") assistant.reasoning_content = reasoning;
+        else if (reasoningContent === "always") assistant.reasoning_content = "";
+      }
       return assistant;
     }
 
@@ -106,6 +151,14 @@ function toOpenAIMessage(message: Message): OpenAIMessage {
         content: textOf(message.content),
       };
   }
+}
+
+/** Concatenate the thinking blocks of a message, for providers that take them. */
+function thinkingOf(content: readonly { type: string }[]): string {
+  return content
+    .filter((block): block is ThinkingBlock => block.type === "thinking")
+    .map((block) => block.text)
+    .join("");
 }
 
 /**

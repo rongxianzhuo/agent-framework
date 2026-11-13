@@ -512,9 +512,25 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`content` on an assistant message can be empty.** A turn that only calls a
   tool has `content: []` and non-empty `toolCalls`. Check `stopReason === "toolUse"`,
   not "did it say anything".
-- **Thinking blocks are not sent back to the model.** The OpenAI adapter drops
-  them outbound: the API does not accept its own reasoning content as input. They
-  stay in the transcript for your UI.
+- **Thinking blocks are echoed back only when the request carries tools.** With
+  no tools, the OpenAI adapter drops them: the API does not accept its own
+  reasoning content as input. With tools, it sends them as `reasoning_content`,
+  because DeepSeek's thinking mode requires exactly that — a request containing
+  `tools` must echo the reasoning of every prior assistant turn, or the API
+  answers 400. Thinking blocks stay in your transcript either way, for your UI.
+
+  Two things to know about that echo. `reasoningEcho` defaults to
+  `"when-present"`, which leaves the field off when a message has no thinking —
+  that is what keeps a transcript written by a provider without thinking blocks
+  unchanged on the wire. Set `reasoningEcho: "always"` on DeepSeek when you build
+  an assistant tool turn yourself instead of taking one from a model response: it
+  sends an empty `reasoning_content` for that turn, which DeepSeek accepts where
+  it rejects a missing field (measured on `deepseek-flash` and `deepseek-v4-pro`).
+  `reasoningEcho: "never"` turns the field off for a gateway that refuses it.
+- **A thinking model spends `max_tokens` on reasoning first.** Reasoning and the
+  answer share one budget, so a cap that looks generous for prose can truncate
+  the tool-call JSON before the model writes any. Size caps for thinking models
+  with that in mind, or leave the cap off.
 - **`baseURL` includes the version segment if the provider uses one.**
   `https://api.openai.com/v1` works; so does `https://api.deepseek.com` without
   `/v1`. There is no default — guessing one produces confusing 404s.

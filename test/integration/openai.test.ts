@@ -102,11 +102,15 @@ describe.skipIf(!enabled || !runConformanceToo)("the full conformance suite on t
   it(
     "passes",
     async () => {
-      const results = await runConformance(openaiClient({ baseURL, apiKey, maxRetries: 0 }), {
-        model,
-        maxOutputTokens: 48,
-        skip: ["abort"],
-      });
+      // No output cap and no skipped checks: the point is to exercise all six
+      // against the real endpoint, including abort. `reasoningEcho: "always"` is
+      // what DeepSeek's thinking mode needs: the tool-result check replays an
+      // assistant tool turn that no model produced, and DeepSeek rejects such a
+      // turn unless `reasoning_content` is present.
+      const results = await runConformance(
+        openaiClient({ baseURL, apiKey, maxRetries: 0, reasoningEcho: "always" }),
+        { model },
+      );
       const summary = formatResults(results);
       for (const result of results) expect(result.ok, `\n${summary}`).toBe(true);
     },

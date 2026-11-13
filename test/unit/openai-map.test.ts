@@ -45,7 +45,7 @@ describe("toOpenAIMessages", () => {
     });
   });
 
-  it("drops thinking blocks instead of sending them back", () => {
+  it("drops thinking blocks by default", () => {
     const messages: Message[] = [
       {
         role: "assistant",
@@ -61,6 +61,69 @@ describe("toOpenAIMessages", () => {
     const [mapped] = toOpenAIMessages(messages);
     expect(mapped).toEqual({ role: "assistant", content: "the answer" });
     expect(JSON.stringify(mapped)).not.toContain("internal reasoning");
+  });
+
+  it("sends thinking blocks back as reasoning_content when asked", () => {
+    // DeepSeek's thinking mode: a request carrying `tools` must echo the
+    // reasoning of every prior assistant turn, or the API returns 400.
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "I need the date first. " },
+          { type: "thinking", text: "Then the weather.", signature: "sig" },
+          { type: "text", text: "Let me check." },
+        ],
+        toolCalls: [{ id: "call_1", name: "get_date", args: {} }],
+        stopReason: "toolUse",
+      },
+      { role: "toolResult", toolCallId: "call_1", toolName: "get_date", content: [{ type: "text", text: "2026-04-19" }], isError: false },
+    ];
+
+    const [mapped] = toOpenAIMessages(messages, { reasoningContent: "when-present" });
+
+    expect(mapped).toEqual({
+      role: "assistant",
+      content: "Let me check.",
+      reasoning_content: "I need the date first. Then the weather.",
+      tool_calls: [{ id: "call_1", type: "function", function: { name: "get_date", arguments: "{}" } }],
+    });
+  });
+
+  it("sends an empty reasoning_content for a thinking-free turn when asked to always echo", () => {
+    // DeepSeek, measured: a tools-carrying request replaying an assistant tool
+    // turn the caller built itself is rejected without the field, and accepts an
+    // empty string.
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [],
+        toolCalls: [{ id: "call_1", name: "read", args: { path: "a.txt" } }],
+        stopReason: "toolUse",
+      },
+    ];
+
+    expect(toOpenAIMessages(messages, { reasoningContent: "always" })[0]).toEqual({
+      role: "assistant",
+      content: null,
+      reasoning_content: "",
+      tool_calls: [
+        { id: "call_1", type: "function", function: { name: "read", arguments: '{"path":"a.txt"}' } },
+      ],
+    });
+  });
+
+  it("omits reasoning_content when a message has no thinking", () => {
+    // A transcript from a provider without thinking must stay wire-identical:
+    // an absent field is fine, a blank one is a different request.
+    const messages: Message[] = [
+      { role: "assistant", content: [{ type: "text", text: "hi" }], toolCalls: [], stopReason: "stop" },
+    ];
+
+    expect(toOpenAIMessages(messages, { reasoningContent: "when-present" })[0]).toEqual({
+      role: "assistant",
+      content: "hi",
+    });
   });
 
   it("serialises tool calls with arguments as a JSON string", () => {

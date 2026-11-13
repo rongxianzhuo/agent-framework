@@ -104,7 +104,12 @@ const hooks: RunHooks = {
 // --- The loop -------------------------------------------------------------
 
 export async function runOnce(): Promise<Usage> {
-  const client = openaiClient({ baseURL: "https://api.openai.com/v1" });
+  // Options the guide names, spelled the way the guide spells them.
+  const client = openaiClient({
+    baseURL: "https://api.openai.com/v1",
+    maxRetries: 0,
+    reasoningEcho: "always",
+  });
 
   const result = await run({
     client,

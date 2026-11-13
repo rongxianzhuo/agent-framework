@@ -38,6 +38,7 @@ import { toNormalizedError } from "../../errors.js";
 import type { LLMClient, LLMEvent, LLMRequest } from "../../client.js";
 import type { NormalizedError, StopReason, Usage } from "../../types.js";
 import { mapFinishReason, toOpenAIMessages, toOpenAITools } from "./map.js";
+import type { ReasoningContentMode } from "./map.js";
 
 export interface OpenAIAdapterOptions {
   /**
@@ -91,6 +92,25 @@ export interface OpenAIAdapterOptions {
   maxTokensField?: "max_tokens" | "max_completion_tokens";
   /** Extra top-level body fields, merged last. */
   bodyDefaults?: Record<string, unknown>;
+  /**
+   * How to handle DeepSeek's `reasoning_content` echo.
+   *
+   * DeepSeek's thinking mode requires that a request carrying `tools` echo the
+   * reasoning of every prior assistant turn; omitting it is a 400. Measured on
+   * both `deepseek-flash` and `deepseek-v4-pro`: omitting is rejected, an empty
+   * string is accepted.
+   *
+   * - `"when-present"` (default) — send thinking blocks when the request has
+   *   tools and the message has any. A transcript from a provider that produces
+   *   no thinking therefore looks unchanged on the wire, which keeps OpenAI safe:
+   *   its API has no such message field.
+   * - `"always"` — also send an empty string for a tools-carrying request whose
+   *   assistant message has no thinking. Needed on DeepSeek when you build an
+   *   assistant tool turn yourself instead of taking it from a model response;
+   *   DeepSeek rejects that turn without the field.
+   * - `"never"` — do not send it at all, for a gateway that rejects the field.
+   */
+  reasoningEcho?: "when-present" | "always" | "never";
 }
 
 export interface OpenAIAdapter extends LLMClient {
@@ -106,6 +126,7 @@ export function openaiClient(options: OpenAIAdapterOptions): OpenAIAdapter {
   const name = options.name ?? "openai";
   const includeUsage = options.includeUsage ?? true;
   const maxTokensField = options.maxTokensField ?? "max_tokens";
+  const reasoningEcho = options.reasoningEcho ?? "when-present";
 
   const sdk = new OpenAI({
     apiKey: options.apiKey ?? process.env["OPENAI_API_KEY"] ?? "",
@@ -127,9 +148,14 @@ export function openaiClient(options: OpenAIAdapterOptions): OpenAIAdapter {
     async *stream(request: LLMRequest, streamOptions?: { signal?: AbortSignal }): AsyncGenerator<LLMEvent> {
       callCount += 1;
 
+      // DeepSeek ties the reasoning echo to the presence of `tools`, not to
+      // whether this particular turn called one.
+      const echo: ReasoningContentMode | undefined =
+        reasoningEcho === "never" || request.tools.length === 0 ? undefined : reasoningEcho;
+
       const body: Record<string, unknown> = {
         model: request.model,
-        messages: toOpenAIMessages(request.messages),
+        messages: toOpenAIMessages(request.messages, echo === undefined ? {} : { reasoningContent: echo }),
         stream: true,
       };
       if (request.tools.length > 0) body["tools"] = toOpenAITools(request.tools);

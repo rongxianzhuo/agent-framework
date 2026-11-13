@@ -10,9 +10,11 @@
  * whatever they already use. That keeps this package free of a test-runner
  * dependency and lets an adapter author run conformance from a script.
  *
- * Each check makes one small model call. Defaults keep the whole suite to a few
- * hundred tokens; pass `maxOutputTokens` and a cheaper `model` to shrink it
- * further, or `only` to run a subset.
+ * Each check makes one model call with no output-token cap by default, on the
+ * theory that a check which fails for budget reasons teaches nothing. That makes
+ * the suite's cost the model's business rather than yours: pass
+ * `maxOutputTokens` when running against an expensive model, or `only` to run a
+ * subset.
  */
 
 import { run } from "../loop.js";
@@ -34,6 +36,15 @@ export interface ConformanceOptions {
   model: string;
   /** Extra request parameters, e.g. an API key through `providerOptions`. */
   providerOptions?: Record<string, unknown>;
+  /**
+   * Cap on output tokens per check. Unset by default: no cap is sent at all.
+   *
+   * Capping was the default once, to keep the suite cheap, and it made the
+   * checks less reliable than the cost saved. A thinking model spends the same
+   * budget on reasoning before it writes anything, so a small cap truncates the
+   * tool-call JSON mid-object; the `abort` check asks for a long generation and
+   * a cap contradicts it. Set a value when running against an expensive model.
+   */
   maxOutputTokens?: number;
   /** Run only these checks. Defaults to all of them. */
   only?: readonly ConformanceCheck[];
@@ -381,9 +392,10 @@ function requestOptions(options: ConformanceOptions): {
   maxOutputTokens?: number;
   providerOptions?: Record<string, unknown>;
 } {
-  const request: { maxOutputTokens?: number; providerOptions?: Record<string, unknown> } = {
-    maxOutputTokens: options.maxOutputTokens ?? 256,
-  };
+  const request: { maxOutputTokens?: number; providerOptions?: Record<string, unknown> } = {};
+  // No default cap: see ConformanceOptions.maxOutputTokens. An explicit value
+  // still passes straight through.
+  if (options.maxOutputTokens !== undefined) request.maxOutputTokens = options.maxOutputTokens;
   if (options.providerOptions !== undefined) request.providerOptions = options.providerOptions;
   return request;
 }
