@@ -6,7 +6,7 @@ understand this repository.
 
 If you would rather read code than prose, `examples/chat/index.mjs` is a
 multi-turn chat bot in one file, and its loop is the shape every embedding agent
-starts from.
+starts from. It targets DeepSeek's endpoint and needs `OPENAI_API_KEY`.
 
 ## What you are getting
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * A multi-turn chat bot, in one file.
+ * A multi-turn chat bot against DeepSeek, in one file.
  *
- *   npm run example              # offline, a scripted model, costs nothing
- *   npm run example -- --live    # a real model; reads OPENAI_API_KEY
+ *   npm run example
+ *
+ * Needs `OPENAI_API_KEY` in the environment. The base URL and model default to
+ * DeepSeek; both can be overridden with `OPENAI_BASE_URL` and `OPENAI_MODEL`.
  *
  * Everything here is the smallest version of something an embedding agent needs:
  * a system prompt, a loop that reads a line and answers it, and a transcript that
@@ -14,34 +16,33 @@
  * next call is what makes it a conversation rather than a series of unrelated
  * questions. There is no session object to open, close or clean up.
  *
- * Type at `you>`, or `/exit` to quit. Ctrl-D does the same.
+ * Type at `you>`, or `/exit` to quit.
  */
 import { createInterface } from "node:readline";
 
 import { run } from "agent-core";
-import { fauxClient } from "agent-core/faux";
+import { openaiClient } from "agent-core/openai";
 
-const live = process.argv.includes("--live");
+const apiKey = process.env.OPENAI_API_KEY ?? "";
+if (apiKey === "") {
+  console.error(
+    [
+      "OPENAI_API_KEY is not set.",
+      "",
+      "  PowerShell:  $env:OPENAI_API_KEY = \"sk-...\"",
+      "  bash/zsh:    export OPENAI_API_KEY=sk-...",
+      "",
+      "Get a key at https://platform.deepseek.com, then run this again.",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
 
-const client = live
-  ? // Imported only when asked for, so the offline path never loads the adapter.
-    await import("agent-core/openai").then(({ openaiClient }) =>
-      openaiClient({ baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1" }),
-    )
-  : fauxClient({
-      // A scripted stand-in for a model. It answers from the transcript it was
-      // handed, so its replies show the conversation actually accumulating.
-      turns: (request) => {
-        const textOf = (message) => message.content.map((block) => block.text ?? "").join("");
-        const users = request.messages.filter((message) => message.role === "user").map(textOf);
-        const answers = request.messages.filter((message) => message.role === "assistant").length;
-        return {
-          text: `You have sent me ${users.length} message(s) and I have answered ${answers} time(s). The last one was "${users.at(-1) ?? ""}".`,
-        };
-      },
-    });
-
-const model = live ? (process.env.OPENAI_MODEL ?? "gpt-4o-mini") : "faux";
+const client = openaiClient({
+  baseURL: process.env.OPENAI_BASE_URL ?? "https://api.deepseek.com",
+  apiKey,
+});
+const model = process.env.OPENAI_MODEL ?? "deepseek-flash";
 
 // The conversation lives here, not in the library.
 let messages = [
@@ -80,6 +81,8 @@ for await (const line of rl) {
   console.log("");
   if (result.stopReason === "error") {
     console.error(`[error] ${result.error.kind}: ${result.error.message}`);
+  } else if (result.usage !== undefined) {
+    console.log(`[${result.usage.totalTokens} tokens]`);
   }
   messages = result.messages;
 

@@ -164,9 +164,10 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/chat/index.mjs`** — a multi-turn chat bot in under ninety lines.
-  The part worth reading is how the transcript is carried between turns, since
-  the library keeps no state. Runs offline in one command: `npm run example`.
+- **`examples/chat/index.mjs`** — a multi-turn chat bot in under ninety lines,
+  pointed at DeepSeek. The part worth reading is how the transcript is carried
+  between turns, since the library keeps no state. Needs `OPENAI_API_KEY`, then
+  `npm run example`.
 
 ## Status
 
