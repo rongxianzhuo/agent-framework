@@ -23,9 +23,11 @@ imports it.
 These are load-bearing. A change that breaks one of them needs a written
 argument.
 
-- **Zero runtime dependencies.** The core imports nothing outside the standard
-  library, so embedding it never drags a provider SDK or a schema library into
-  your tree.
+- **The core has no dependencies.** `import ... from "agent-core"` loads nothing
+  outside the Node standard library. One dependency exists in the package — the
+  official `openai` SDK — and it is reachable only through `agent-core/openai`.
+  `npm install` will put it on disk either way; a core-only agent never loads it,
+  and `npm run check:package` fails if that ever changes.
 - **No global state.** Several instances can run in the same process. No
   environment variables, no config files, no cwd assumptions, no singletons.
 - **No I/O of its own.** The core never touches the filesystem or the network;
@@ -34,8 +36,8 @@ argument.
   state internally, so callers own persistence and replay.
 - **Small surface.** Message types, tools, one `run` function, a few hooks.
 
-Provider adapters live under `src/providers/`. The OpenAI adapter uses `fetch`
-directly, so even the provider layer adds no runtime dependency.
+Provider adapters live under `src/providers/`. `src/` is the only place allowed
+to import a package, and only the adapters there do.
 
 ## Entry points
 

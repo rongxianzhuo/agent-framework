@@ -198,17 +198,33 @@ step("type-checking a TypeScript consumer", () => {
 // 7. The core entry point must not load an adapter
 // ---------------------------------------------------------------------------
 
-step("checking that the core entry point loads no adapter", () => {
-  // Poison the adapter files. If importing the core pulls either one in, the
-  // import throws and the failure names itself.
+step("checking that the core entry point loads no adapter and no SDK", () => {
+  // Poison the adapter files *and* the vendor SDK. If importing the core pulls
+  // any of them in, the import throws and the failure names itself.
+  //
+  // The SDK is part of this check rather than a separate one because it is the
+  // interesting case: `npm install` puts `openai` on disk no matter what, so
+  // "the core has no dependency" is no longer true. "The core does not load it"
+  // still is, and that is what an embedding agent actually pays for at startup.
   const dist = join(consumer, "node_modules/agent-core/dist");
-  const poisoned = ["openai.js", "providers/openai/index.js", "providers/faux/index.js"];
+  const poisoned = [
+    join(dist, "openai.js"),
+    join(dist, "providers/openai/index.js"),
+    join(dist, "providers/faux/index.js"),
+    join(consumer, "node_modules/openai/index.js"),
+    join(consumer, "node_modules/openai/index.mjs"),
+  ];
   const originals = new Map();
 
-  for (const file of poisoned) {
-    const path = join(dist, file);
-    originals.set(path, readFileSync(path, "utf8"));
-    writeFileSync(path, 'throw new Error("an adapter was loaded by a core-only import");\n');
+  for (const path of poisoned) {
+    let original;
+    try {
+      original = readFileSync(path, "utf8");
+    } catch {
+      continue; // Not every variant of the SDK entry file exists.
+    }
+    originals.set(path, original);
+    writeFileSync(path, 'throw new Error("a provider dependency was loaded by a core-only import");\n');
   }
 
   try {
@@ -219,13 +235,15 @@ step("checking that the core entry point loads no adapter", () => {
         "-e",
         'const core = await import("agent-core");' +
           'if ("openaiClient" in core) { console.error("core exports openaiClient"); process.exit(1); }' +
-          `console.log("core imported with adapters poisoned, VERSION " + core.VERSION);`,
+          `console.log("core imported with providers poisoned, VERSION " + core.VERSION);`,
       ],
       { cwd: consumer },
     );
     return output.trim();
   } catch (error) {
-    failures.push(`importing agent-core loaded an adapter: ${String(error.stderr ?? error).trim().split("\n")[0]}`);
+    failures.push(
+      `importing agent-core loaded a provider dependency: ${String(error.stderr ?? error).trim().split("\n")[0]}`,
+    );
     return "";
   } finally {
     for (const [path, contents] of originals) writeFileSync(path, contents);

@@ -6,8 +6,8 @@
  * reading a diff. Each one turns into a failing check here, so the repository
  * rots loudly instead of quietly.
  *
- *   1. The published package has no runtime dependencies.
- *   2. `src/` imports nothing outside Node builtins and its own relative files.
+ *   1. The only runtime dependency is the `openai` SDK, used by one adapter.
+ *   2. Only `src/providers/` may import outside Node builtins and its own files.
  *   3. Core modules never import a provider adapter.
  *   4. Every entry point lists its exports explicitly; no `export *`.
  *   5. No credential is committed.
@@ -36,11 +36,21 @@ function walk(dir) {
 
 const srcFiles = walk(join(root, "src"));
 
-// 1. No runtime dependencies.
+// 1. Exactly one runtime dependency, and it is the vendor SDK.
+//
+// The rule used to be "zero". It became "one, the official OpenAI SDK" when the
+// adapter moved onto `openai`: writing the SSE framer by hand was a maintenance
+// burden and a source of protocol drift. The property that actually mattered —
+// that importing the core does not load a vendor library — is checked separately
+// and transitively below, which is a stronger statement than counting
+// dependencies.
+const ALLOWED_DEPENDENCIES = new Set(["openai"]);
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const deps = Object.keys(pkg.dependencies ?? {});
-if (deps.length > 0) {
-  failures.push(`package.json declares runtime dependencies: ${deps.join(", ")}`);
+for (const dep of deps) {
+  if (!ALLOWED_DEPENDENCIES.has(dep)) {
+    failures.push(`package.json declares an unexpected runtime dependency: ${dep}`);
+  }
 }
 
 // 2 and 3. Import discipline.
@@ -62,7 +72,14 @@ for (const file of srcFiles) {
       }
       continue;
     }
-    failures.push(`${rel} imports a bare module ("${spec}"); use Node builtins or relative paths`);
+    // Only adapters may import a package. Everything else in src/ is core, and
+    // core importing a bare module would push that dependency onto every
+    // consumer of the loop.
+    if (!rel.startsWith("src/providers/")) {
+      failures.push(`${rel} imports a bare module ("${spec}"); only src/providers/ may do that`);
+    } else if (!ALLOWED_DEPENDENCIES.has(spec.split("/")[0])) {
+      failures.push(`${rel} imports "${spec}", which is neither a Node builtin nor the allowed SDK`);
+    }
   }
 }
 
@@ -167,5 +184,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Invariants OK: ${srcFiles.length} source files, ${ENTRY_POINTS.length} entry points, ${tracked.length} tracked files, zero runtime dependencies, no committed credentials.`,
+  `Invariants OK: ${srcFiles.length} source files, ${ENTRY_POINTS.length} entry points, ${tracked.length} tracked files, runtime dependencies: ${deps.join(", ") || "none"}, no committed credentials.`,
 );

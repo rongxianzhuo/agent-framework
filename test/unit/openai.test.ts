@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { run, type Message } from "../../src/index.js";
-import { openaiClient, parseSSE } from "../../src/openai.js";
+import { openaiClient } from "../../src/openai.js";
 
 // ---------------------------------------------------------------------------
 // A fake fetch that replays canned SSE bytes, chunked the way a socket arrives.
@@ -20,10 +20,16 @@ interface FakeResponse {
 function fakeFetch(responses: FakeResponse[], calls: { url: string; body: unknown; headers: Record<string, string> }[]) {
   let index = 0;
   const fn = (async (url: string, init?: RequestInit) => {
+    const raw = init?.headers;
     calls.push({
       url: String(url),
       body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
-      headers: (init?.headers ?? {}) as Record<string, string>,
+      // The SDK builds a `Headers`, lowercased; the hand-written code sent a
+      // plain object. Normalise so assertions read the same either way.
+      headers:
+        raw instanceof Headers
+          ? (Object.fromEntries(raw.entries()) as Record<string, string>)
+          : ((raw ?? {}) as Record<string, string>),
     });
     const spec = responses[index];
     index += 1;
@@ -424,14 +430,16 @@ describe("errors", () => {
         { body: sse([textChunk("finally", "stop")]) },
       ],
       calls,
-      { maxRetries: 2, retryBaseMs: 1 },
+      { maxRetries: 2 },
     );
 
     const result = await run({ client: c, model: "m", messages: [hello] });
 
     expect(result.stopReason).toBe("completed");
     expect(calls).toHaveLength(2);
-    expect(c.callCount).toBe(2);
+    // One `stream()` call: the SDK retried inside it. The two entries in `calls`
+    // are the evidence that a second request actually went out.
+    expect(c.callCount).toBe(1);
   });
 
   it("stops retrying once the budget is spent", async () => {
@@ -443,7 +451,7 @@ describe("errors", () => {
         { status: 503, body: "{}" },
       ],
       calls,
-      { maxRetries: 1, retryBaseMs: 1 },
+      { maxRetries: 1 },
     );
 
     const result = await run({ client: c, model: "m", messages: [hello] });
@@ -484,7 +492,7 @@ describe("errors", () => {
         { status: 200 },
       );
     };
-    const c = openaiClient({ baseURL: "https://example.test/v1", apiKey: "k", fetch: fake, maxRetries: 3, retryBaseMs: 1 });
+    const c = openaiClient({ baseURL: "https://example.test/v1", apiKey: "k", fetch: fake, maxRetries: 3 });
 
     const result = await run({ client: c, model: "m", messages: [hello] });
 
@@ -520,14 +528,17 @@ describe("errors", () => {
     expect(result.error?.message).toContain("upstream overloaded");
   });
 
-  it("reports unparseable stream data as a provider error", async () => {
+  it("reports unparseable stream data as an error rather than hanging", async () => {
+    // The SDK does the parsing now, so its wording is not ours to assert on.
+    // What matters is that garbage on the wire surfaces as a failure.
     const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
     const c = client([{ body: "data: {not json}\n\n" }], calls);
 
     const result = await run({ client: c, model: "m", messages: [hello] });
 
+    expect(result.stopReason).toBe("error");
     expect(result.error?.kind).toBe("provider");
-    expect(result.error?.message).toContain("could not parse");
+    expect(result.error?.message).toContain("malformed server-sent event");
   });
 
   it("treats an abort as aborted, not as a failure", async () => {
@@ -555,65 +566,5 @@ describe("errors", () => {
 
     expect(result.stopReason).toBe("aborted");
     expect(result.error?.kind).toBe("aborted");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// SSE parsing
-// ---------------------------------------------------------------------------
-
-describe("parseSSE", () => {
-  async function parse(body: string, chunkSize = body.length): Promise<string[]> {
-    const encoder = new TextEncoder();
-    const pieces: string[] = [];
-    for (let i = 0; i < body.length; i += chunkSize) pieces.push(body.slice(i, i + chunkSize));
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const piece of pieces) controller.enqueue(encoder.encode(piece));
-        controller.close();
-      },
-    });
-    const out: string[] = [];
-    for await (const message of parseSSE(stream)) out.push(message.data);
-    return out;
-  }
-
-  it("splits events on blank lines", async () => {
-    expect(await parse("data: a\n\ndata: b\n\n")).toEqual(["a", "b"]);
-  });
-
-  it("joins multi-line data fields", async () => {
-    expect(await parse("data: one\ndata: two\n\n")).toEqual(["one\ntwo"]);
-  });
-
-  it("skips comment lines", async () => {
-    expect(await parse(":keep-alive\n\ndata: real\n\n")).toEqual(["real"]);
-  });
-
-  it("handles CRLF line endings", async () => {
-    expect(await parse("data: a\r\n\r\ndata: b\r\n\r\n")).toEqual(["a", "b"]);
-  });
-
-  it("emits a final event with no trailing newline", async () => {
-    expect(await parse("data: last")).toEqual(["last"]);
-  });
-
-  it("is indifferent to how the bytes were chopped up", async () => {
-    const body = "data: first\n\ndata: second\n\n";
-    expect(await parse(body, 1)).toEqual(["first", "second"]);
-    expect(await parse(body, 3)).toEqual(["first", "second"]);
-  });
-
-  it("keeps an event name when one is present", async () => {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode("event: chunk\ndata: x\n\n"));
-        controller.close();
-      },
-    });
-    const events = [];
-    for await (const message of parseSSE(stream)) events.push(message);
-    expect(events[0]).toEqual({ data: "x", event: "chunk" });
   });
 });

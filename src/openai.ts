@@ -1,9 +1,13 @@
 /**
- * `agent-core/openai` — the OpenAI Chat Completions adapter.
+ * `agent-core/openai` — the OpenAI Chat Completions adapter, on the official SDK.
  *
- * A separate entry point so that importing the core does not load an HTTP
- * adapter. `map.ts` and `sse.ts` are exported because an adapter author writing
- * a different gateway often wants the same message mapping and the same framer.
+ * A separate entry point because importing it loads the `openai` package. The
+ * core entry point does not, so an embedding agent that only wants the loop never
+ * pulls the SDK into its process.
+ *
+ * `map.ts` is exported as well: someone writing an adapter for a different
+ * vendor that speaks the same wire format can reuse the message translation
+ * instead of writing it again.
  */
 
 export {
@@ -18,9 +22,6 @@ export {
   toOpenAITools,
   type OpenAIContentPart,
   type OpenAIMessage,
-  type OpenAIStreamChunk,
   type OpenAITool,
   type OpenAIToolCall,
 } from "./providers/openai/map.js";
-
-export { parseSSE, type SSEMessage } from "./providers/sse.js";

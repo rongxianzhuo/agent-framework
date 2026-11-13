@@ -50,7 +50,9 @@
     "check:example": "npm run build && node scripts/check-example.mjs",
     "check:all": "npm run check && npm run check:example && npm run check:package"
   },
-  "dependencies": {},
+  "dependencies": {
+    "openai": "^7.56.0"
+  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "oxlint": "^1.9.0",

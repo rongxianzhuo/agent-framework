@@ -17,7 +17,14 @@ transcript.
 Everything else stays yours: the system prompt, what tools exist and what they
 do, how much history fits, which calls need approval, where the transcript is
 stored, what the user sees. The library has no UI, no session storage, no
-configuration files, no global state, and no runtime dependencies.
+configuration files and no global state.
+
+It has one dependency: the official `openai` SDK, used by `agent-core/openai` and
+nowhere else. Importing `agent-core` alone does not load it, so an agent that only
+wants the loop pays nothing at runtime — though `npm install` puts the SDK on disk
+regardless, because npm has no per-entry-point dependencies. If that matters to
+you, it is the price of not maintaining an SSE framer and a protocol mapping by
+hand.
 
 ## Install and run
 
@@ -68,7 +75,7 @@ Node 22 or later. TypeScript projects need `@types/node` — the public types us
 | Import | Contents |
 | --- | --- |
 | `agent-core` | Loop, messages, tools, schema validation, hooks |
-| `agent-core/openai` | OpenAI adapter, SSE parser, wire mapping |
+| `agent-core/openai` | OpenAI adapter (on the official SDK), wire mapping |
 | `agent-core/faux` | A scripted client for tests |
 | `agent-core/conformance` | `runConformance`, for people writing adapters |
 
@@ -381,9 +388,13 @@ Failures are `NormalizedError` values — `{ kind, message, retryable, status?, 
 
 **Retries live in the adapter, not the loop.** An adapter may retry a failure that
 has not yet streamed anything; once output has reached the caller, retrying would
-replay text the user already saw. The OpenAI adapter's `maxRetries` defaults to
-`0`, because a library should not silently spend your money — set it in the agent
-that owns a budget.
+replay text the user already saw.
+
+The OpenAI adapter's `maxRetries` defaults to `0`, **not** the SDK's own default of
+`2`: a library should not silently spend your money. Set it in the agent that owns
+a budget. The retry loop itself is the SDK's, so `agent-core` passes the number
+through and then gets out of the way; the SDK already refuses to replay a request
+whose response body has begun streaming.
 
 The loop's own reaction to `rateLimit` and friends is to stop and tell you. Decide
 there whether to retry the whole run, with the transcript it returned.
@@ -523,6 +534,10 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`details` is not sent to the model.** It is for you. Nothing in it reaches the
   provider, so it is a safe place for structured data, but it is also not a place
   the model can read.
+- **The SDK is installed even if you never touch it.** `npm install agent-core`
+  puts `openai` (~35 MB) in `node_modules`. Nothing loads it unless you import
+  `agent-core/openai`, but the disk cost is real. If you are embedding only the
+  loop and care about install size, that is the trade to weigh.
 - **`maxTurns` off by default cuts both ways.** A loop that never terminates will
   not terminate. Watch `turns` in logs and set a ceiling where a run can be long.
 
