@@ -47,4 +47,26 @@ export type {
 // Errors
 export { DEFAULT_RETRYABLE, toNormalizedError } from "./errors.js";
 
+// Schema subset
+export {
+  InvalidSchemaError,
+  checkSchema,
+  validate,
+  type JSONSchema,
+  type JSONSchemaType,
+  type SchemaViolation,
+} from "./schema.js";
+
+// Tools
+export {
+  ToolRegistry,
+  defineTool,
+  executeTool,
+  jsonResult,
+  textResult,
+  type ToolContext,
+  type ToolDefinition,
+  type ToolExecution,
+} from "./tools.js";
+
 export const VERSION = "0.1.0";
