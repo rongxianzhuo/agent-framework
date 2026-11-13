@@ -10,10 +10,12 @@
  *   2. `src/` imports nothing outside Node builtins and its own relative files.
  *   3. Core modules never import a provider adapter.
  *   4. `src/index.ts` lists its exports explicitly; no `export *`.
+ *   5. No credential is committed.
  *
  * Run directly (`node scripts/check-invariants.mjs`) or via `npm run check`.
  */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,6 +74,44 @@ if (/export\s*\*/.test(entry)) {
   failures.push("src/index.ts uses `export *`; list every export explicitly");
 }
 
+// 5. No credentials in anything git would commit. Checked against the tracked
+// file list, so a local .env is irrelevant and a staged key is caught before it
+// leaves the machine. Only the file and line are reported — echoing the match
+// would put the secret in a log, which is the thing being prevented.
+const SECRET_PATTERNS = [
+  { name: "an OpenAI-style API key", re: /\bsk-[A-Za-z0-9_-]{16,}/ },
+  { name: "an Anthropic API key", re: /\bsk-ant-[A-Za-z0-9_-]{16,}/ },
+  { name: "a bearer token", re: /\bBearer\s+[A-Za-z0-9._-]{20,}/ },
+];
+
+let tracked = [];
+try {
+  tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+} catch {
+  // Not a git checkout (a published tarball, a CI export). Nothing to scan.
+}
+
+for (const file of tracked) {
+  // This script necessarily contains the patterns themselves.
+  if (file === "scripts/check-invariants.mjs") continue;
+  let text;
+  try {
+    text = readFileSync(join(root, file), "utf8");
+  } catch {
+    continue;
+  }
+  const lines = text.split("\n");
+  for (const [index, line] of lines.entries()) {
+    for (const { name, re } of SECRET_PATTERNS) {
+      if (re.test(line)) {
+        failures.push(`${file}:${index + 1} looks like it contains ${name}; remove it and rotate the credential`);
+      }
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error("Invariant check failed:\n");
   for (const f of failures) console.error(`  - ${f}`);
@@ -79,5 +119,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Invariants OK: ${srcFiles.length} source files, zero runtime dependencies, explicit entry-point exports.`,
+  `Invariants OK: ${srcFiles.length} source files, ${tracked.length} tracked files, zero runtime dependencies, no committed credentials.`,
 );

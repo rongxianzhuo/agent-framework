@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { openaiClient, parseSSE, run, type Message } from "../../src/index.js";
-import type { LLMEvent } from "../../src/index.js";
 
 // ---------------------------------------------------------------------------
 // A fake fetch that replays canned SSE bytes, chunked the way a socket arrives.
@@ -105,12 +104,6 @@ function client(responses: FakeResponse[], calls: Parameters<typeof fakeFetch>[1
   });
 }
 
-async function collect(events: AsyncIterable<LLMEvent>): Promise<LLMEvent[]> {
-  const out: LLMEvent[] = [];
-  for await (const event of events) out.push(event);
-  return out;
-}
-
 /**
  * The assistant message in a transcript.
  *
@@ -150,7 +143,9 @@ describe("request", () => {
   it("requests usage by default and can be told not to", async () => {
     const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
     await run({ client: client([{ body: sse([textChunk("a", "stop")]) }], calls), model: "m", messages: [hello] });
-    expect((calls[0]?.body as { stream_options?: unknown }).stream_options).toEqual({ include_usage: true });
+    expect((calls[0]?.body as { stream_options?: unknown } | undefined)?.stream_options).toEqual({
+      include_usage: true,
+    });
 
     const calls2: typeof calls = [];
     await run({
@@ -158,7 +153,7 @@ describe("request", () => {
       model: "m",
       messages: [hello],
     });
-    expect("stream_options" in (calls2[0]?.body as object)).toBe(false);
+    expect("stream_options" in ((calls2[0]?.body ?? {}) as object)).toBe(false);
   });
 
   it("omits optional parameters instead of sending undefined", async () => {
@@ -538,9 +533,8 @@ describe("errors", () => {
     const controller = new AbortController();
     const encoder = new TextEncoder();
     const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
-    const fake: typeof fetch = async (_url, init) => {
+    const fake: typeof fetch = async (_url) => {
       calls.push({ url: String(_url), body: {}, headers: {} });
-      const signal = init?.signal;
       return new Response(
         new ReadableStream<Uint8Array>({
           async start(controller2) {

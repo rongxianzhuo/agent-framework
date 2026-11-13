@@ -1,16 +1,20 @@
 /**
- * Live checks against the real OpenAI endpoint.
+ * Live checks against a real API. **These cost money.**
  *
- * Skipped unless `OPENAI_API_KEY` is set, and skipped loudly: the file records
- * why, so a green test run cannot be mistaken for "verified against the API".
+ * Skipped unless `OPENAI_API_KEY` is set, and when skipped it says so, because a
+ * green test run must not be readable as "verified against the API".
  *
- * Keep this list short and cheap. Everything that can be checked against recorded
- * chunks belongs in `test/unit/openai.test.ts`; what lives here is only the part
- * that a fixture cannot prove — that the wire format is still accepted.
+ * Deliberately one test and two model calls. A tool round trip is the cheapest
+ * single run that still proves the things a fixture cannot: that the endpoint
+ * accepts our message shape, our tool schema, and the transcript we send back
+ * with a tool result. Everything else worth checking is against recorded chunks
+ * in `test/unit/openai.test.ts`, which is free.
  *
- *   OPENAI_API_KEY=sk-... npm test
- *   OPENAI_BASE_URL=https://api.deepseek.com/v1 OPENAI_MODEL=deepseek-chat \
- *     OPENAI_API_KEY=... npm test
+ * Not run here, on purpose: the full `runConformance` suite (six calls, and its
+ * abort check needs a long generation). Set `OPENAI_LIVE_CONFORMANCE=1` to run it
+ * deliberately.
+ *
+ *   set -a; . /root/.env; set +a; npm test
  */
 
 import { describe, expect, it } from "vitest";
@@ -20,67 +24,90 @@ import { openaiClient, run, runConformance, defineTool, textResult, formatResult
 const apiKey = process.env["OPENAI_API_KEY"] ?? "";
 const baseURL = process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com/v1";
 const model = process.env["OPENAI_MODEL"] ?? "gpt-4o-mini";
+const runConformanceToo = process.env["OPENAI_LIVE_CONFORMANCE"] === "1";
 
 const enabled = apiKey !== "";
 
 if (!enabled) {
-  // Not a silent skip: this line is the evidence that live checks did not run.
-  console.log("[openai integration] skipped: OPENAI_API_KEY is not set");
+  console.log("[live api] skipped: OPENAI_API_KEY is not set");
 }
 
-describe.skipIf(!enabled)("openai adapter against the live API", () => {
-  const client = () =>
-    openaiClient({ baseURL, apiKey, maxRetries: 1, retryBaseMs: 2_000 });
+describe.skipIf(!enabled)("the adapter against the live API", () => {
+  // No retries: a retried request is a second bill.
+  const client = () => openaiClient({ baseURL, apiKey, maxRetries: 0 });
 
-  it("answers a plain prompt", async () => {
-    const result = await run({
-      client: client(),
-      model,
-      messages: [{ role: "user", content: [{ type: "text", text: "Reply with the single word: ready" }] }],
-      maxOutputTokens: 32,
-    });
+  it(
+    "runs a tool round trip against the real endpoint",
+    async () => {
+      const tool = defineTool<{ city: string }>({
+        name: "get_weather",
+        description: "Return the current weather for a city.",
+        parameters: {
+          type: "object",
+          properties: { city: { type: "string", description: "City name." } },
+          required: ["city"],
+          additionalProperties: false,
+        },
+        execute: (args) => textResult(`21C and clear in ${args.city}`),
+      });
 
-    expect(result.stopReason, result.error?.message).toBe("completed");
-    const assistant = result.messages.at(-1);
-    if (assistant?.role !== "assistant") throw new Error("no assistant message");
-    expect(assistant.content.some((block) => block.type === "text")).toBe(true);
-    expect(result.usage.totalTokens).toBeGreaterThan(0);
-  }, 60_000);
+      const result = await run({
+        client: client(),
+        model,
+        messages: [
+          { role: "system", content: [{ type: "text", text: "Be brief. Use tools when asked." }] },
+          { role: "user", content: [{ type: "text", text: "Weather in Lisbon? Use the tool, then answer in five words." }] },
+        ],
+        tools: [tool],
+        maxTurns: 3,
+        maxOutputTokens: 64,
+      });
 
-  it("calls a tool and uses its result", async () => {
-    const tool = defineTool<{ city: string }>({
-      name: "get_weather",
-      description: "Return the current weather for a city. Always call this when asked about weather.",
-      parameters: {
-        type: "object",
-        properties: { city: { type: "string", description: "City name." } },
-        required: ["city"],
-        additionalProperties: false,
-      },
-      execute: (args) => textResult(`It is 21C and clear in ${args.city}.`),
-    });
+      // A failure here is the interesting case, so surface the provider's own
+      // words before asserting anything else.
+      expect(result.error?.message ?? "no error", `stopReason=${result.stopReason}`).toBe("no error");
 
-    const result = await run({
-      client: client(),
-      model,
-      messages: [{ role: "user", content: [{ type: "text", text: "What is the weather in Lisbon? Use the tool." }] }],
-      tools: [tool],
-      maxTurns: 3,
-    });
+      const roles = result.messages.map((message) => message.role);
+      expect(roles, "the model answered without calling the tool").toContain("toolResult");
+      expect(result.turns).toBeGreaterThanOrEqual(2);
+      expect(result.usage.inputTokens).toBeGreaterThan(0);
+      expect(result.usage.outputTokens).toBeGreaterThan(0);
 
-    expect(result.stopReason, result.error?.message).toBe("completed");
-    const toolResult = result.messages.find((m) => m.role === "toolResult");
-    expect(toolResult, "the model never called the tool").toBeDefined();
-    expect(toolResult).toMatchObject({ toolName: "get_weather", isError: false });
-  }, 120_000);
+      console.log(
+        `[live api] ${model}: ${result.turns} turns, ${result.usage.inputTokens} in / ${result.usage.outputTokens} out / ${result.usage.totalTokens} total`,
+      );
+      console.log(
+        `[live api] transcript: ${result.messages
+          .map((message) =>
+            message.role === "assistant"
+              ? `assistant[${message.content.map((block) => block.type).join("+") || "none"}${message.toolCalls.length > 0 ? `, ${message.toolCalls.map((call) => `${call.name}(${JSON.stringify(call.args)})`).join(" ")}` : ""}]`
+              : message.role,
+          )
+          .join(" > ")}`,
+      );
+      const finalText = result.messages
+        .at(-1)
+        ?.content.filter((block) => block.type === "text")
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("");
+      console.log(`[live api] final answer: ${JSON.stringify(finalText)}`);
+    },
+    120_000,
+  );
+});
 
-  it("passes the shared conformance suite", async () => {
-    const results = await runConformance(client(), { model, maxOutputTokens: 128 });
-    const summary = formatResults(results);
-
-    // Report every line before asserting, so a failure names the broken check.
-    for (const result of results) {
-      expect(result.ok, summary).toBe(true);
-    }
-  }, 180_000);
+describe.skipIf(!enabled || !runConformanceToo)("the full conformance suite on the live API", () => {
+  it(
+    "passes",
+    async () => {
+      const results = await runConformance(openaiClient({ baseURL, apiKey, maxRetries: 0 }), {
+        model,
+        maxOutputTokens: 48,
+        skip: ["abort"],
+      });
+      const summary = formatResults(results);
+      for (const result of results) expect(result.ok, `\n${summary}`).toBe(true);
+    },
+    240_000,
+  );
 });
