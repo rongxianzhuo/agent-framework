@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   DEFAULT_RETRYABLE,
+  VERSION,
   toNormalizedError,
   type AgentEvent,
   type AssistantMessage,
@@ -23,6 +24,10 @@ describe("message model", () => {
   const text: ContentBlock = { type: "text", text: "hello" };
   const image: ContentBlock = { type: "image", mimeType: "image/png", data: "AAAA" };
   const thinking: ContentBlock = { type: "thinking", text: "hmm", signature: "sig" };
+
+  it("exposes the package version", () => {
+    expect(VERSION).toBe("0.1.0");
+  });
 
   it("accepts every content block variant", () => {
     expect([text, image, thinking].map((b) => b.type)).toEqual(["text", "image", "thinking"]);

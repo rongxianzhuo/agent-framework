@@ -190,6 +190,8 @@ export interface ToolExecution {
    * to retry work the caller just cancelled.
    */
   aborted: boolean;
+  /** Wall-clock duration of the call, for progress display and slow-tool hunting. */
+  durationMs: number;
 }
 
 /** Cap on how much of a thrown error's text is fed back to the model. */
@@ -207,14 +209,31 @@ export async function executeTool(
   call: ToolCall,
   ctx: ToolContext,
 ): Promise<ToolExecution> {
+  const startedAt = performance.now();
+  const elapsed = (): number => Math.round(performance.now() - startedAt);
+
   if (ctx.signal?.aborted) {
-    return abortedExecution(call, "The run was cancelled before this call started.");
+    return abortedExecution(call, "The run was cancelled before this call started.", elapsed());
   }
 
   if (!tool) {
     return failedExecution(
       call,
       toNormalizedError("invalidToolCall", `There is no tool named "${call.name}".`),
+      elapsed(),
+    );
+  }
+
+  // A tool call whose arguments never parsed arrives as `undefined`. Say so
+  // plainly instead of letting the schema report "expected object".
+  if (call.args === undefined) {
+    return failedExecution(
+      call,
+      toNormalizedError(
+        "invalidToolCall",
+        `The arguments for tool "${tool.name}" were not valid JSON, so the call could not be executed. Call the tool again with well-formed arguments.`,
+      ),
+      elapsed(),
     );
   }
 
@@ -223,10 +242,9 @@ export async function executeTool(
     return failedExecution(
       call,
       toNormalizedError("invalidToolCall", invalidArgumentsMessage(tool.name, violations)),
+      elapsed(),
     );
   }
-
-  const startedAt = performance.now();
 
   try {
     const result = await runWithTimeout(tool, call, ctx);
@@ -245,14 +263,15 @@ export async function executeTool(
         message,
         error: toNormalizedError(
           "toolFailed",
-          `Tool "${tool.name}" reported a failure after ${Math.round(performance.now() - startedAt)}ms.`,
+          `Tool "${tool.name}" reported a failure after ${elapsed()}ms.`,
         ),
+        durationMs: elapsed(),
       };
     }
-    return { aborted: false, message };
+    return { aborted: false, message, durationMs: elapsed() };
   } catch (thrown) {
     if (isAbortError(thrown) || ctx.signal?.aborted) {
-      return abortedExecution(call, `Tool "${tool.name}" was cancelled.`);
+      return abortedExecution(call, `Tool "${tool.name}" was cancelled.`, elapsed());
     }
 
     const error = classifyThrown(tool.name, thrown);
@@ -263,7 +282,7 @@ export async function executeTool(
       content: [{ type: "text", text: error.message }],
       isError: true,
     };
-    return { aborted: false, message, error };
+    return { aborted: false, message, error, durationMs: elapsed() };
   }
 }
 
@@ -338,19 +357,21 @@ function invalidArgumentsMessage(
   ].join("\n");
 }
 
-function failedExecution(call: ToolCall, error: NormalizedError): ToolExecution {
+function failedExecution(call: ToolCall, error: NormalizedError, durationMs: number): ToolExecution {
   return {
     aborted: false,
     error,
     message: errorResult(call, error.message),
+    durationMs,
   };
 }
 
-function abortedExecution(call: ToolCall, text: string): ToolExecution {
+function abortedExecution(call: ToolCall, text: string, durationMs: number): ToolExecution {
   return {
     aborted: true,
     error: toNormalizedError("aborted", text),
     message: errorResult(call, text),
+    durationMs,
   };
 }
 

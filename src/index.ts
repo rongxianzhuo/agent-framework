@@ -69,4 +69,22 @@ export {
   type ToolExecution,
 } from "./tools.js";
 
+// Provider contract
+export {
+  EMPTY_USAGE,
+  MessageAccumulator,
+  addUsage,
+  isNormalizedError,
+  normalizeThrown,
+  toToolSpec,
+  type LLMClient,
+  type LLMEvent,
+  type LLMRequest,
+  type LLMStreamOptions,
+  type ToolSpec,
+} from "./client.js";
+
+// Loop
+export { run, type RunOptions, type RunResult } from "./loop.js";
+
 export const VERSION = "0.1.0";

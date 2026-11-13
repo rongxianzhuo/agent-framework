@@ -42,7 +42,7 @@ if (deps.length > 0) {
 
 // 2 and 3. Import discipline.
 const importRe = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
-const coreModules = new Set(["types", "errors", "events", "loop", "hooks", "tools", "schema"]);
+const coreModules = new Set(["types", "errors", "events", "loop", "hooks", "tools", "schema", "client"]);
 
 for (const file of srcFiles) {
   const rel = relative(root, file).replaceAll("\\", "/");
