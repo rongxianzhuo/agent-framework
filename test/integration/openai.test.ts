@@ -19,7 +19,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { openaiClient, run, runConformance, defineTool, textResult, formatResults } from "../../src/index.js";
+import { defineTool, run, textResult } from "../../src/index.js";
+import { openaiClient } from "../../src/openai.js";
+import { formatResults, runConformance } from "../../src/conformance.js";
 
 const apiKey = process.env["OPENAI_API_KEY"] ?? "";
 const baseURL = process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com/v1";

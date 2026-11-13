@@ -37,11 +37,27 @@ argument.
 Provider adapters live under `src/providers/`. The OpenAI adapter uses `fetch`
 directly, so even the provider layer adds no runtime dependency.
 
+## Entry points
+
+Four, so that importing the core does not pull an adapter into your process:
+
+| Import | What you get |
+| --- | --- |
+| `agent-core` | Loop, messages, tools, schema, hooks. Node built-ins only. |
+| `agent-core/openai` | The OpenAI Chat Completions adapter, plus the SSE parser and message mapping. |
+| `agent-core/faux` | A scripted `LLMClient` for tests. |
+| `agent-core/conformance` | `runConformance`, for anyone writing their own adapter. |
+
+Requires Node 22 or later. TypeScript consumers need `@types/node`; the
+declarations use `AbortSignal`, `ReadableStream` and `fetch`, which is why the
+package needs no `DOM` lib.
+
 ## Usage
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { openaiClient, run, defineTool, textResult } from "agent-core";
+import { run, defineTool, textResult } from "agent-core";
+import { openaiClient } from "agent-core/openai";
 
 const read = defineTool<{ path: string }>({
   name: "read",
@@ -123,7 +139,9 @@ which is how caching and test stubs work.
 ## Testing without a model
 
 ```ts
-import { fauxClient, run, runConformance } from "agent-core";
+import { run } from "agent-core";
+import { fauxClient } from "agent-core/faux";
+import { runConformance } from "agent-core/conformance";
 
 const client = fauxClient({
   turns: [

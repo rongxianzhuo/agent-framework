@@ -9,8 +9,9 @@
  *   1. The published package has no runtime dependencies.
  *   2. `src/` imports nothing outside Node builtins and its own relative files.
  *   3. Core modules never import a provider adapter.
- *   4. `src/index.ts` lists its exports explicitly; no `export *`.
+ *   4. Every entry point lists its exports explicitly; no `export *`.
  *   5. No credential is committed.
+ *   6. The core entry point does not reach a provider or the conformance suite.
  *
  * Run directly (`node scripts/check-invariants.mjs`) or via `npm run check`.
  */
@@ -65,13 +66,60 @@ for (const file of srcFiles) {
   }
 }
 
-// 4. Explicit exports only. Comments are stripped first so that prose about the
-// rule (this file's own README text, for instance) does not trip the check.
-const entry = readFileSync(join(root, "src/index.ts"), "utf8")
-  .replaceAll(/\/\*[\s\S]*?\*\//g, "")
-  .replaceAll(/\/\/[^\n]*/g, "");
-if (/export\s*\*/.test(entry)) {
-  failures.push("src/index.ts uses `export *`; list every export explicitly");
+// 4. Explicit exports only, in every entry point. Comments are stripped first so
+// that prose about the rule (this file's own README text, for instance) does not
+// trip the check.
+const ENTRY_POINTS = ["index", "openai", "faux", "conformance"];
+
+for (const name of ENTRY_POINTS) {
+  const path = join(root, "src", `${name}.ts`);
+  let source;
+  try {
+    source = readFileSync(path, "utf8");
+  } catch {
+    failures.push(`entry point src/${name}.ts is missing; package.json exports refer to it`);
+    continue;
+  }
+
+  const stripped = source.replaceAll(/\/\*[\s\S]*?\*\//g, "").replaceAll(/\/\/[^\n]*/g, "");
+  if (/export\s*\*/.test(stripped)) {
+    failures.push(`src/${name}.ts uses \`export *\`; list every export explicitly`);
+  }
+}
+
+// 6. The core entry point must not drag a provider or the conformance suite into
+// an embedding agent's process. Checked transitively through the relative import
+// graph rooted at src/index.ts, not just the file's own imports: a two-hop path
+// is exactly how this would slip back in.
+const CORE_FORBIDDEN = [/^src\/providers\//, /^src\/testing\//];
+const coreVisited = new Set();
+const coreQueue = [join(root, "src/index.ts")];
+
+while (coreQueue.length > 0) {
+  const file = coreQueue.pop();
+  const rel = relative(root, file).replaceAll("\\", "/");
+  if (coreVisited.has(rel)) continue;
+  coreVisited.add(rel);
+
+  for (const pattern of CORE_FORBIDDEN) {
+    if (pattern.test(rel)) {
+      failures.push(`${rel} is reachable from src/index.ts; the core entry point must stay provider-free`);
+    }
+  }
+
+  let source;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch {
+    continue;
+  }
+  for (const match of source.matchAll(importRe)) {
+    const spec = match[1];
+    if (!spec.startsWith("./") && !spec.startsWith("../")) continue;
+    // `.js` in the source, `.ts` on disk.
+    const target = resolve(dirname(file), spec).replace(/\.js$/, ".ts");
+    coreQueue.push(target);
+  }
 }
 
 // 5. No credentials in anything git would commit. Checked against the tracked
@@ -119,5 +167,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Invariants OK: ${srcFiles.length} source files, ${tracked.length} tracked files, zero runtime dependencies, no committed credentials.`,
+  `Invariants OK: ${srcFiles.length} source files, ${ENTRY_POINTS.length} entry points, ${tracked.length} tracked files, zero runtime dependencies, no committed credentials.`,
 );

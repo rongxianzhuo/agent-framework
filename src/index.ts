@@ -105,24 +105,9 @@ export {
   type TranscriptProblem,
 } from "./hooks.js";
 
-// Providers (subpath imports keep these out of a core-only module graph)
-export {
-  openaiClient,
-  type OpenAIAdapter,
-  type OpenAIAdapterOptions,
-} from "./providers/openai/index.js";
-export { toOpenAIMessages, toOpenAITools } from "./providers/openai/map.js";
-export { parseSSE, type SSEMessage } from "./providers/sse.js";
-
-// Testing: a scripted provider and a conformance suite for adapter authors
-export { fauxClient, type FauxClient, type FauxOptions, type FauxTurn } from "./providers/faux/index.js";
-export {
-  allPassed,
-  formatResults,
-  runConformance,
-  type ConformanceCheck,
-  type ConformanceOptions,
-  type ConformanceResult,
-} from "./testing/conformance.js";
+// Providers, the scripted client and the conformance suite are separate entry
+// points (`agent-core/openai`, `agent-core/faux`, `agent-core/conformance`).
+// Deliberately absent here: an embedding agent that only wants the loop should
+// not pull an HTTP adapter into its process because it imported `run`.
 
 export const VERSION = "0.1.0";

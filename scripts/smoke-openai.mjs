@@ -7,7 +7,8 @@
 //
 //   npm run smoke:openai
 import { createServer } from "node:http";
-import { openaiClient, run, defineTool, textResult } from "../dist/index.js";
+import { run, defineTool, textResult } from "../dist/index.js";
+import { openaiClient } from "../dist/openai.js";
 
 let turn = 0;
 

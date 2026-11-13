@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { openaiClient, parseSSE, run, type Message } from "../../src/index.js";
+import { run, type Message } from "../../src/index.js";
+import { openaiClient, parseSSE } from "../../src/openai.js";
 
 // ---------------------------------------------------------------------------
 // A fake fetch that replays canned SSE bytes, chunked the way a socket arrives.

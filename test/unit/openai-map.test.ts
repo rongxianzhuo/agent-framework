@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { run, textResult, defineTool, type Message, type ToolSpec } from "../../src/index.js";
+import { openaiClient } from "../../src/openai.js";
 import { mapFinishReason, toOpenAIMessages, toOpenAITools } from "../../src/providers/openai/map.js";
 
 describe("toOpenAIMessages", () => {
@@ -230,7 +231,6 @@ describe("mapping inside a run", () => {
       );
     };
 
-    const { openaiClient } = await import("../../src/index.js");
     const client = openaiClient({ baseURL: "https://example.test/v1", apiKey: "k", fetch: fakeFetch });
     const tool = defineTool({ name: "read", description: "Read.", parameters: { type: "object", properties: {} }, execute: () => textResult("") });
 

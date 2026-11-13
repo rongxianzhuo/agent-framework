@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  fauxClient,
-  run,
   defineTool,
-  textResult,
-  findTranscriptProblems,
   describeTranscriptProblems,
-  resolveHooks,
+  findTranscriptProblems,
   hasHooks,
+  resolveHooks,
+  run,
+  textResult,
   type AgentEvent,
+  type LLMRequest,
   type Message,
   type RunHooks,
-  type LLMRequest,
 } from "../../src/index.js";
+import { fauxClient } from "../../src/faux.js";
 
 const hello: Message = { role: "user", content: [{ type: "text", text: "hi" }] };
 

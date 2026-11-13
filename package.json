@@ -14,10 +14,24 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./openai": {
+      "types": "./dist/openai.d.ts",
+      "import": "./dist/openai.js"
+    },
+    "./faux": {
+      "types": "./dist/faux.d.ts",
+      "import": "./dist/faux.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance.d.ts",
+      "import": "./dist/conformance.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "README.md"
   ],
   "sideEffects": false,
   "scripts": {
@@ -28,7 +42,8 @@
     "invariants": "node scripts/check-invariants.mjs",
     "smoke:openai": "npm run build && node scripts/smoke-openai.mjs",
     "check": "npm run invariants && npm run typecheck && npm run lint && npm run test",
-    "smoke:hooks": "npm run build && node scripts/smoke-hooks.mjs"
+    "smoke:hooks": "npm run build && node scripts/smoke-hooks.mjs",
+    "check:package": "node scripts/check-package.mjs"
   },
   "dependencies": {},
   "devDependencies": {

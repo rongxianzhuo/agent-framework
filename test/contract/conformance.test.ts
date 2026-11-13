@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { type LLMClient, type LLMRequest } from "../../src/index.js";
+import { fauxClient, type FauxTurn } from "../../src/faux.js";
 import {
   allPassed,
-  fauxClient,
   formatResults,
   runConformance,
   type ConformanceResult,
-  type FauxTurn,
-  type LLMClient,
-  type LLMRequest,
-} from "../../src/index.js";
+} from "../../src/conformance.js";
 
 /** Last user text in a request, which is how the suite's prompts are recognised. */
 function lastUserText(request: LLMRequest): string {
