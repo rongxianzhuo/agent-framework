@@ -164,10 +164,11 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/chat/index.mjs`** — a multi-turn chat bot in under ninety lines,
-  pointed at DeepSeek. The part worth reading is how the transcript is carried
-  between turns, since the library keeps no state. Needs `OPENAI_API_KEY`, then
-  `npm run example`.
+- **`examples/chat/index.mjs`** — a multi-turn chat bot in about a hundred lines,
+  pointed at DeepSeek. It prints the model's reasoning above each answer, which is
+  what `thinking_delta` events are for. The part worth reading is how the
+  transcript is carried between turns, since the library keeps no state. Needs
+  `OPENAI_API_KEY`, then `npm run example`.
 
 ## Status
 

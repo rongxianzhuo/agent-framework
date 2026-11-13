@@ -17,6 +17,11 @@
  * questions. There is no session object to open, close or clean up.
  *
  * Type at `you>`, or `/exit` to quit.
+ *
+ * The bot shows the model's reasoning above its answer, because DeepSeek's
+ * thinking mode produces a lot of it and watching it is half the point of
+ * running a chat demo against a reasoning model. Set `SHOW_THINKING=0` to print
+ * only the answers.
  */
 import { createInterface } from "node:readline";
 
@@ -44,6 +49,10 @@ const client = openaiClient({
 });
 const model = process.env.OPENAI_MODEL ?? "deepseek-flash";
 
+// Unset means on: an empty string is still a set variable, so this reads the
+// value rather than its presence.
+const showThinking = (process.env.SHOW_THINKING ?? "1") !== "0";
+
 // The conversation lives here, not in the library.
 let messages = [
   {
@@ -66,7 +75,17 @@ for await (const line of rl) {
   if (text === "/exit" || text === "/quit") break;
 
   messages.push({ role: "user", content: [{ type: "text", text }] });
-  if (terminal) process.stdout.write("bot> ");
+
+  // Reasoning and answer arrive interleaved on one stream, so some state is
+  // needed to know whether the current line is the model thinking or talking.
+  // The two get different prefixes: reasoning is often long, and mixing it into
+  // the answer makes the answer hard to find.
+  let mode = "idle";
+  const open = (next) => {
+    if (mode !== next) process.stdout.write(mode === "idle" ? "" : "\n");
+    if (mode !== next) process.stdout.write(next === "thinking" ? "bot (thinking)> " : "bot> ");
+    mode = next;
+  };
 
   // Nothing is mutated for us: the result carries the transcript to send next.
   const result = await run({
@@ -74,7 +93,15 @@ for await (const line of rl) {
     model,
     messages,
     onEvent: (event) => {
-      if (event.type === "text_delta") process.stdout.write(event.text);
+      if (event.type === "thinking_delta") {
+        if (!showThinking) return;
+        open("thinking");
+        process.stdout.write(event.text);
+      }
+      if (event.type === "text_delta") {
+        open("text");
+        process.stdout.write(event.text);
+      }
     },
   });
 

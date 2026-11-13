@@ -22,6 +22,15 @@ const failures = [];
 /** Requests the local server received, cleared between scenarios. */
 let received = [];
 
+/**
+ * Whether the server should stream `reasoning_content` before the answer.
+ *
+ * DeepSeek sends reasoning as `delta.reasoning_content`, which the adapter turns
+ * into `thinking_delta` events. Without this the demo's thinking path would never
+ * be exercised here.
+ */
+let sendReasoning = false;
+
 const server = createServer((request, response) => {
   let body = "";
   request.on("data", (chunk) => (body += chunk));
@@ -29,6 +38,10 @@ const server = createServer((request, response) => {
     received.push(JSON.parse(body));
     response.writeHead(200, { "content-type": "text/event-stream" });
     const send = (chunk) => response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    if (sendReasoning) {
+      send({ choices: [{ delta: { reasoning_content: "Let me think. " } }] });
+      send({ choices: [{ delta: { reasoning_content: "The answer is trivial." } }] });
+    }
     // Echo the turn number, so the output shows which call produced it.
     send({ choices: [{ delta: { content: `answer ${received.length}` } }] });
     send({ choices: [{ delta: {}, finish_reason: "stop" }] });
@@ -50,6 +63,7 @@ const { port } = server.address();
  */
 async function converse(lines, env = {}) {
   received = [];
+  sendReasoning = env["SHOW_THINKING"] !== undefined;
   // Async on purpose: `execFileSync` would block this process's event loop, so
   // the local server could never answer the child's request.
   const child = spawn(process.execPath, [entry], {
@@ -140,7 +154,28 @@ await scenario(
   ],
 );
 
-// 5. Without a key it says so, instead of trying and failing with a 401.
+// 5. Reasoning is shown above the answer, on its own prefix, and can be turned off.
+await scenario(
+  "shows reasoning above the answer",
+  () => converse(["hello"], { SHOW_THINKING: "1" }),
+  (output) => [
+    ["the reasoning to be printed", output.includes("Let me think. The answer is trivial.")],
+    ["a marker distinguishing it", output.includes("bot (thinking)>")],
+    ["the answer to follow on its own line", /bot \(thinking\)> .*\nbot> answer 1/.test(output)],
+  ],
+);
+
+await scenario(
+  "hides reasoning when asked to",
+  () => converse(["hello"], { SHOW_THINKING: "0" }),
+  (output) => [
+    ["no reasoning", !output.includes("Let me think.")],
+    ["no marker", !output.includes("(thinking)")],
+    ["the answer to still be there", output.includes("answer 1")],
+  ],
+);
+
+// 6. Without a key it says so, instead of trying and failing with a 401.
 {
   const { output, code } = await converse(["hello"], { OPENAI_API_KEY: "" });
   const checks = [
