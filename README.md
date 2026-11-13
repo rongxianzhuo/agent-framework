@@ -34,10 +34,71 @@ argument.
   state internally, so callers own persistence and replay.
 - **Small surface.** Message types, tools, one `run` function, a few hooks.
 
-Provider adapters live under `src/providers/` and are optional subpath imports.
-They may depend on a vendor SDK; the core may not.
+Provider adapters live under `src/providers/`. The OpenAI adapter uses `fetch`
+directly, so even the provider layer adds no runtime dependency.
+
+## Usage
+
+```ts
+import { readFile } from "node:fs/promises";
+import { openaiClient, run, defineTool, textResult } from "agent-core";
+
+const read = defineTool<{ path: string }>({
+  name: "read",
+  description: "Read a file and return its contents.",
+  parameters: {
+    type: "object",
+    properties: { path: { type: "string" } },
+    required: ["path"],
+    additionalProperties: false,
+  },
+  execute: async (args) => textResult(await readFile(args.path, "utf8")),
+});
+
+const client = openaiClient({ baseURL: "https://api.openai.com/v1" });
+
+const result = await run({
+  client,
+  model: "gpt-4o-mini",
+  messages: [
+    { role: "system", content: [{ type: "text", text: "You are a coding agent." }] },
+    { role: "user", content: [{ type: "text", text: "What is in src/index.ts?" }] },
+  ],
+  tools: [read],
+  onEvent: (event) => {
+    if (event.type === "text_delta") process.stdout.write(event.text);
+  },
+});
+
+// Persist this wherever you like; pass it back in to continue.
+await save(result.messages);
+```
+
+`run` returns `{ messages, usage, turns, stopReason, error? }`. It does not throw
+for model or tool failures — those come back in the result.
+
+## Testing without a model
+
+```ts
+import { fauxClient, run, runConformance } from "agent-core";
+
+const client = fauxClient({
+  turns: [
+    { toolCalls: [{ id: "c1", name: "read", args: { path: "a.ts" } }] },
+    { text: "a.ts is a test file." },
+  ],
+});
+```
+
+`fauxClient` scripts an `LLMClient` and streams it exactly as a real adapter
+does. `runConformance(client, { model })` runs six checks against any adapter —
+including one you write yourself — and returns pass/fail data.
 
 ## Status
 
-Skeleton only. The message model, tool validation, loop and adapters land in the
-steps that follow; see the commits for the current state.
+Implemented: message model, JSON Schema subset validation, tools, the loop, the
+provider contract, a scripted provider, a conformance suite, and the OpenAI
+adapter.
+
+Not implemented, on purpose: any UI, session storage, permissions, retries above
+the adapter layer, context compaction, MCP, sub-agents.

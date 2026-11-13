@@ -87,6 +87,15 @@ export {
 // Loop
 export { run, type RunOptions, type RunResult } from "./loop.js";
 
+// Providers (subpath imports keep these out of a core-only module graph)
+export {
+  openaiClient,
+  type OpenAIAdapter,
+  type OpenAIAdapterOptions,
+} from "./providers/openai/index.js";
+export { toOpenAIMessages, toOpenAITools } from "./providers/openai/map.js";
+export { parseSSE, type SSEMessage } from "./providers/sse.js";
+
 // Testing: a scripted provider and a conformance suite for adapter authors
 export { fauxClient, type FauxClient, type FauxOptions, type FauxTurn } from "./providers/faux/index.js";
 export {
