@@ -27,7 +27,8 @@
     "build": "tsc -p tsconfig.build.json",
     "invariants": "node scripts/check-invariants.mjs",
     "smoke:openai": "npm run build && node scripts/smoke-openai.mjs",
-    "check": "npm run invariants && npm run typecheck && npm run lint && npm run test"
+    "check": "npm run invariants && npm run typecheck && npm run lint && npm run test",
+    "smoke:hooks": "npm run build && node scripts/smoke-hooks.mjs"
   },
   "dependencies": {},
   "devDependencies": {

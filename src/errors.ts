@@ -27,6 +27,7 @@ export const DEFAULT_RETRYABLE: Readonly<Record<ErrorKind, boolean>> = Object.fr
   aborted: false,
   invalidToolCall: false,
   toolFailed: false,
+  hook: false,
   provider: false,
   unknown: false,
 });

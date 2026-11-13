@@ -77,6 +77,49 @@ await save(result.messages);
 `run` returns `{ messages, usage, turns, stopReason, error? }`. It does not throw
 for model or tool failures — those come back in the result.
 
+## Hooks: the caller's three decisions
+
+The core has no opinions about how much context fits, which tools are allowed, or
+what a caller's UI should display. Those belong to the embedding agent, and each
+one happens at a specific point in the loop.
+
+```ts
+const result = await run({
+  client,
+  model: "gpt-4o-mini",
+  messages,
+  tools: [deleteFile, listDir],
+  hooks: {
+    // Trim or inject just before the request is sent.
+    onBeforeRequest: ({ request }) => ({ ...request, messages: trim(request.messages) }),
+
+    // Permission check. Returning a denial does not stop the run: the model is
+    // told "no" as a tool result and gets to try something else.
+    onToolCall: ({ call }) => {
+      if (call.name === "delete_file" && !isInsideTmp(call.args)) {
+        return { deny: "Refused: that path is outside /tmp." };
+      }
+    },
+
+    // Rewrite what the model sees. The raw value can stay in `details`.
+    onToolResult: ({ result }) => ({
+      ...result,
+      content: result.content.map((block) =>
+        block.type === "text" ? { ...block, text: redact(block.text) } : block,
+      ),
+    }),
+  },
+});
+```
+
+Every hook is optional. `onBeforeRequest` and `onToolResult` chain, so a list of
+them composes; `onToolCall` short-circuits, because a guard that says no must not
+be overridden by a later hook that means to allow. A hook that throws ends the run
+with `kind: "hook"` — a guard that crashes is not a guard.
+
+`onToolCall` can also return `{ result }` to answer without running the tool,
+which is how caching and test stubs work.
+
 ## Testing without a model
 
 ```ts
@@ -97,8 +140,9 @@ including one you write yourself — and returns pass/fail data.
 ## Status
 
 Implemented: message model, JSON Schema subset validation, tools, the loop, the
-provider contract, a scripted provider, a conformance suite, and the OpenAI
-adapter.
+provider contract, hooks, a scripted provider, a conformance suite, and the
+OpenAI adapter.
 
-Not implemented, on purpose: any UI, session storage, permissions, retries above
-the adapter layer, context compaction, MCP, sub-agents.
+Not implemented, on purpose: any UI, session storage, permissions *policy* (the
+hook is the mechanism; deciding who may delete what is the caller's), retries
+above the adapter layer, context compaction, MCP, sub-agents.

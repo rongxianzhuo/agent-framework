@@ -16,9 +16,9 @@
  * - Usage accumulation across turns, since each response only reports its own.
  *
  * Things that are deliberately not here: retries (they belong to the adapter,
- * so two backoff policies never stack), context trimming (belongs to the caller
- * through `onEvent` plus its own transcript handling), rendering, persistence,
- * permissions, and any notion of a sub-agent.
+ * so two backoff policies never stack), context trimming (offered to the caller
+ * through `hooks.onBeforeRequest`), rendering, persistence, permissions (offered
+ * through `hooks.onToolCall`), and any notion of a sub-agent.
  */
 
 import {
@@ -29,7 +29,16 @@ import {
   type LLMClient,
   type LLMRequest,
 } from "./client.js";
-import { executeTool, type ToolContext, type ToolDefinition } from "./tools.js";
+import {
+  HookError,
+  applyResultHooks,
+  deniedExecution,
+  describeTranscriptProblems,
+  findTranscriptProblems,
+  resolveHooks,
+  type RunHooks,
+} from "./hooks.js";
+import { executeTool, toResultMessage, type ToolContext, type ToolDefinition } from "./tools.js";
 import type {
   AgentEvent,
   AssistantMessage,
@@ -77,6 +86,15 @@ export interface RunOptions {
   /** Progress callback. Awaited, so an async logger applies backpressure. */
   onEvent?: (event: AgentEvent) => void | Promise<void>;
 
+  /**
+   * Interception points for the embedding agent: rewrite the request, deny a
+   * tool call, rewrite a tool result. Omit for a plain loop.
+   *
+   * A hook that throws ends the run with `kind: "hook"` rather than falling
+   * through, so a broken permission guard cannot turn into an open door.
+   */
+  hooks?: RunHooks;
+
   maxOutputTokens?: number;
   temperature?: number;
   /** Forwarded to the adapter untouched. */
@@ -116,6 +134,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     maxTurns = Number.POSITIVE_INFINITY,
     parallelTools = true,
     onEvent,
+    hooks: hookOptions,
     maxOutputTokens,
     temperature,
     providerOptions,
@@ -124,6 +143,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const emit = async (event: AgentEvent): Promise<void> => {
     await onEvent?.(event);
   };
+
+  const hooks = resolveHooks(hookOptions);
 
   // Copy, so the caller's array is untouched. Everything below appends to this.
   const messages: Message[] = [...options.messages];
@@ -158,10 +179,30 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
     // A snapshot, not the live array: an adapter may keep the request for
     // logging, and must not see it grow as the run continues.
-    const request: LLMRequest = { model, messages: [...messages], tools: specs };
+    let request: LLMRequest = { model, messages: [...messages], tools: specs };
     if (maxOutputTokens !== undefined) request.maxOutputTokens = maxOutputTokens;
     if (temperature !== undefined) request.temperature = temperature;
     if (providerOptions !== undefined) request.providerOptions = providerOptions;
+
+    // --- let the caller rewrite the request --------------------------------
+    try {
+      request = await hooks.beforeRequest({ turn: turns, request, signal });
+    } catch (thrown) {
+      if (thrown instanceof HookError) return finish("error", thrown.toNormalized());
+      throw thrown;
+    }
+
+    // The hook is free to shorten the transcript, and the most common way to get
+    // that wrong is to keep a tool call without its result. Catch it here, where
+    // the offending message can be named, instead of letting the provider reject
+    // the request with a message about roles.
+    const problems = findTranscriptProblems(request.messages);
+    if (problems.length > 0) {
+      const error = normalizeThrown(new Error(describeTranscriptProblems(problems)), client.name);
+      error.kind = "invalidRequest";
+      error.retryable = false;
+      return finish("error", error);
+    }
 
     // --- ask the model -----------------------------------------------------
     let assistant: AssistantMessage | undefined;
@@ -231,13 +272,39 @@ export async function run(options: RunOptions): Promise<RunResult> {
       });
     }
 
-    const executions = parallelTools
-      ? await Promise.all(
-          assistant.toolCalls.map((call, index) =>
-            executeTool(byName.get(call.name), call, contexts[index]!),
-          ),
-        )
-      : await runSequentially(assistant.toolCalls, byName, contexts);
+    // Each call goes through the same three stages: the caller's permission
+    // decision, the tool itself, then the caller's result rewriting. Keeping
+    // them in one function is what makes the sequential and parallel paths
+    // behave identically.
+    const runOne = async (call: (typeof assistant.toolCalls)[number], index: number) => {
+      const decision = await hooks.toolCall({
+        turn: turns,
+        call,
+        tool: byName.get(call.name),
+        signal,
+      });
+
+      let execution =
+        decision !== undefined && "deny" in decision
+          ? deniedExecution(call, decision.deny, decision.details)
+          : decision !== undefined && "result" in decision
+            ? { aborted: false, message: toResultMessage(call, decision.result), durationMs: 0 }
+            : await executeTool(byName.get(call.name), call, contexts[index]!);
+
+      execution = await applyResultHooks(execution, call, turns, hooks, signal);
+      return execution;
+    };
+
+    let executions: Awaited<ReturnType<typeof runOne>>[];
+    try {
+      executions = parallelTools
+        ? await Promise.all(assistant.toolCalls.map((call, index) => runOne(call, index)))
+        : await runSequentially(assistant.toolCalls, runOne);
+    } catch (thrown) {
+      // Only a hook can throw here; `executeTool` turns every failure into data.
+      if (thrown instanceof HookError) return finish("error", thrown.toNormalized());
+      throw thrown;
+    }
 
     if (signal?.aborted) {
       // Results of a cancelled run are dropped rather than fed back: telling the
@@ -331,14 +398,13 @@ async function consumeStream(
   return done;
 }
 
-async function runSequentially(
-  calls: readonly { id: string; name: string; args: unknown }[],
-  byName: Map<string, ToolDefinition<never>>,
-  contexts: readonly ToolContext[],
-): Promise<Awaited<ReturnType<typeof executeTool>>[]> {
-  const results: Awaited<ReturnType<typeof executeTool>>[] = [];
+async function runSequentially<C, R>(
+  calls: readonly C[],
+  runOne: (call: C, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
   for (const [index, call] of calls.entries()) {
-    results.push(await executeTool(byName.get(call.name), call, contexts[index]!));
+    results.push(await runOne(call, index));
   }
   return results;
 }

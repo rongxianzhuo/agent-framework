@@ -217,7 +217,8 @@ describe("normalized errors", () => {
   });
 
   it("has a default stance for every kind", () => {
-    expect(Object.keys(DEFAULT_RETRYABLE)).toHaveLength(11);
+    expect(Object.keys(DEFAULT_RETRYABLE)).toHaveLength(12);
     expect(DEFAULT_RETRYABLE.aborted).toBe(false);
+    expect(DEFAULT_RETRYABLE.hook).toBe(false);
   });
 });

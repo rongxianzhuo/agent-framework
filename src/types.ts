@@ -338,6 +338,8 @@ export type ErrorKind =
   | "invalidToolCall"
   /** A tool threw or returned a failure. Fed back to the model. */
   | "toolFailed"
+  /** A caller-supplied hook threw. Ends the run, since a broken guard is not a guard. */
+  | "hook"
   /** Unclassified provider failure. */
   | "provider"
   /** Anything else. */

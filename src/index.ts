@@ -87,6 +87,24 @@ export {
 // Loop
 export { run, type RunOptions, type RunResult } from "./loop.js";
 
+// Hooks: the caller's interception points in a run
+export {
+  HookError,
+  describeTranscriptProblems,
+  findTranscriptProblems,
+  hasHooks,
+  resolveHooks,
+  type BeforeRequestContext,
+  type BeforeRequestHook,
+  type RunHooks,
+  type ToolCallContext,
+  type ToolCallDecision,
+  type ToolCallHook,
+  type ToolResultContext,
+  type ToolResultHook,
+  type TranscriptProblem,
+} from "./hooks.js";
+
 // Providers (subpath imports keep these out of a core-only module graph)
 export {
   openaiClient,

@@ -198,6 +198,25 @@ export interface ToolExecution {
 const MAX_ERROR_CHARS = 2_000;
 
 /**
+ * Wrap a `ToolResult` in the transcript message it becomes.
+ *
+ * Exported because hooks produce results too — a denial or a cached answer is an
+ * ordinary tool result with an unusual origin, and it must be wrapped
+ * identically or the provider will not accept the transcript.
+ */
+export function toResultMessage(call: ToolCall, result: ToolResult): ToolResultMessage {
+  const message: ToolResultMessage = {
+    role: "toolResult",
+    toolCallId: call.id,
+    toolName: call.name,
+    content: result.content,
+    isError: result.isError ?? false,
+  };
+  if (result.details !== undefined) message.details = result.details;
+  return message;
+}
+
+/**
  * Run one tool call.
  *
  * Order of checks matters and is fixed: abort, then existence, then argument
@@ -248,14 +267,7 @@ export async function executeTool(
 
   try {
     const result = await runWithTimeout(tool, call, ctx);
-    const message: ToolResultMessage = {
-      role: "toolResult",
-      toolCallId: call.id,
-      toolName: call.name,
-      content: result.content,
-      isError: result.isError ?? false,
-    };
-    if (result.details !== undefined) message.details = result.details;
+    const message = toResultMessage(call, result);
 
     if (message.isError) {
       return {
