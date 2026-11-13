@@ -25,7 +25,8 @@
     "lint": "oxlint src test",
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "invariants": "node scripts/check-invariants.mjs",
+    "check": "npm run invariants && npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {},
   "devDependencies": {
