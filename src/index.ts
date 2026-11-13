@@ -87,4 +87,15 @@ export {
 // Loop
 export { run, type RunOptions, type RunResult } from "./loop.js";
 
+// Testing: a scripted provider and a conformance suite for adapter authors
+export { fauxClient, type FauxClient, type FauxOptions, type FauxTurn } from "./providers/faux/index.js";
+export {
+  allPassed,
+  formatResults,
+  runConformance,
+  type ConformanceCheck,
+  type ConformanceOptions,
+  type ConformanceResult,
+} from "./testing/conformance.js";
+
 export const VERSION = "0.1.0";
