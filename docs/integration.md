@@ -4,8 +4,9 @@ Everything you need to put an agent inside your own program. Written for someone
 who has a project and wants a model loop in it, not for someone who wants to
 understand this repository.
 
-If you would rather read code than prose, `examples/file-agent/index.mjs` is a
-complete agent — tools, guards, context trimming, streaming — in one file.
+If you would rather read code than prose, `examples/chat/index.mjs` is a
+multi-turn chat bot in one file, and its loop is the shape every embedding agent
+starts from.
 
 ## What you are getting
 

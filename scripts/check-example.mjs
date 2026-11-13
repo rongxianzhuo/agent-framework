@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Run the example in its offline modes and check what it prints.
+ * Run the chat example and check what it prints.
  *
  * An example that no longer runs is worse than no example, so this keeps it
- * honest without spending a token: three scenarios, each asserting on output that
- * would only appear if the loop, the tools and the hooks actually worked.
+ * honest without spending a token: the bot is driven by piped stdin, and every
+ * assertion is something that only appears if the loop really ran.
  *
  *   npm run check:example
  */
@@ -15,108 +15,123 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const entry = join(root, "examples/file-agent/index.mjs");
+const entry = join(root, "examples/chat/index.mjs");
 const failures = [];
 
-/** Run the example offline and return its output. */
-function runExample(args, overrides = {}) {
-  // Copied and unset rather than blanked: the example treats "present" as
-  // "asked for", and an empty string is present.
-  const env = { ...process.env, OPENAI_API_KEY: "" };
-  for (const key of ["EXAMPLE_QUESTION", "EXAMPLE_FOLLOWUP", "EXAMPLE_MAX_EXCHANGES"]) delete env[key];
+/**
+ * Drive the bot with these lines and return what it printed.
+ *
+ * `OPENAI_API_KEY` is unset, not blanked: an empty string is still a set
+ * variable, and the example treats a set key as "you want a real model".
+ */
+function converse(lines, overrides = {}) {
+  const env = { ...process.env };
+  delete env["OPENAI_API_KEY"];
+  delete env["OPENAI_BASE_URL"];
+  delete env["OPENAI_MODEL"];
   Object.assign(env, overrides);
 
-  return execFileSync(process.execPath, [entry, ...args], { cwd: root, encoding: "utf8", env });
+  return execFileSync(process.execPath, [entry], {
+    cwd: root,
+    encoding: "utf8",
+    env,
+    input: lines.join("\n") + "\n",
+  });
 }
 
-function scenario(name, args, env, assertions) {
+function scenario(name, check) {
   let output;
   try {
-    output = runExample(args, env);
+    output = check();
   } catch (error) {
-    failures.push(`${name}: the example exited with an error\n${String(error.stdout ?? "")}${String(error.stderr ?? "")}`);
+    failures.push(`${name}: ${String(error.stdout ?? "")}${String(error.stderr ?? error)}`);
     return;
   }
-
-  for (const [label, check] of assertions) {
-    if (!check(output)) failures.push(`${name}: expected ${label}`);
-  }
-  console.log(`  ${name}: ${failures.length === 0 ? "ok" : "checked"}`);
+  console.log(`  ${name}: ok`);
   for (const line of output.trim().split("\n").slice(-3)) console.log(`    ${line}`);
+}
+
+function expect(name, output, checks) {
+  for (const [label, ok] of checks) {
+    if (!ok) failures.push(`${name}: expected ${label}\n--- output ---\n${output}`);
+  }
 }
 
 console.log("running the example offline");
 
-// 1. The normal path: list a directory, read a file from the listing, answer.
-scenario("reads a directory", ["src"], {}, [
-  ["a listing tool call", (out) => out.includes("[tool] list_files")],
-  ["a read of a file that exists", (out) => /\[tool\] read_file \{"path":"[^"]+\.ts"\}/.test(out)],
-  ["no failed tool", (out) => !out.includes("(refused or failed)")],
-  ["a completed run", (out) => out.includes("stop: completed")],
-  [
-    "the full list/read/answer transcript",
-    (out) => out.includes("system > user > assistant > toolResult > assistant > toolResult > assistant"),
-  ],
-]);
-
-// 2. Path traversal is refused by the tool, and the refusal comes back as data.
-scenario("refuses a path outside the root", ["src"], { EXAMPLE_QUESTION: "read ../etc/passwd" }, [
-  ["the run to complete despite the refusal", (out) => out.includes("stop: completed")],
-  ["the refusal text", (out) => out.includes("is outside")],
-  ["no crash", (out) => !out.includes("Unhandled")],
-]);
-
-// 3. The hook-level guard: .env is denied before the tool runs.
-scenario("denies .env via onToolCall", ["."], { EXAMPLE_QUESTION: "show me the .env file" }, [
-  ["the denial", (out) => out.includes("Refused: .env files are off limits")],
-  ["the run to complete", (out) => out.includes("stop: completed")],
-]);
-
-// 4. Two questions on one transcript, with trimming forced on.
-scenario(
-  "continues a conversation and trims it",
-  ["src"],
-  { EXAMPLE_FOLLOWUP: "And what is in there?", EXAMPLE_MAX_EXCHANGES: "1" },
-  [
-    ["two completed runs", (out) => (out.match(/stop: completed/g) ?? []).length === 2],
-    ["the trimming hook to report a cut", (out) => out.includes("[hooks] trimmed")],
+// 1. The whole point of the example: the second answer sees the first exchange.
+scenario("answers twice from one accumulating transcript", () => {
+  const output = converse(["hello", "what did I just say?"]);
+  expect("answers twice from one accumulating transcript", output, [
     [
-      "the second run to start from the first transcript",
-      (out) => /system > user > .* > assistant > user > assistant/.test(out),
+      "a first answer to one message and no prior answers",
+      output.includes('You have sent me 1 message(s) and I have answered 0 time(s). The last one was "hello".'),
     ],
-  ],
-);
+    [
+      // Both counts matter: the second turn must see the earlier question *and*
+      // the reply to it. Keeping only the user messages would satisfy a count of
+      // two and lose the conversation.
+      "a second answer to two messages and one prior answer",
+      output.includes('You have sent me 2 message(s) and I have answered 1 time(s). The last one was "what did I just say?".'),
+    ],
+    ["no error", !output.includes("[error]")],
+  ]);
+  return output;
+});
 
-// 5. The --live path, against a local server that speaks the OpenAI wire format.
-//    Proves the dynamic import and the adapter still fit together, without a key.
+// 2. A blank line is not a message, and must not reach the model.
+scenario("ignores blank lines", () => {
+  const output = converse(["", "  ", "only one"]);
+  expect("ignores blank lines", output, [
+    ["exactly one answer", (output.match(/You have sent me/g) ?? []).length === 1],
+    ["that answer to be the message", output.includes('"only one"')],
+  ]);
+  return output;
+});
+
+// 3. `/exit` stops before reading the rest of the input.
+scenario("stops on /exit", () => {
+  const output = converse(["first", "/exit", "never answered"]);
+  expect("stops on /exit", output, [
+    ["one answer only", (output.match(/You have sent me/g) ?? []).length === 1],
+    ["the trailing line to be ignored", !output.includes("never answered")],
+  ]);
+  return output;
+});
+
+// 4. Closed input is a clean end, not a crash: a bot piped a file must finish.
+scenario("exits cleanly at end of input", () => {
+  const output = converse([]);
+  expect("exits cleanly at end of input", output, [
+    ["no output and no crash", output.trim() === ""],
+  ]);
+  return output || "(no output)";
+});
+
+// 5. The --live path, against a local server speaking the OpenAI wire format.
+//    This is the only check that looks at the requests, and so the only one that
+//    proves the earlier turns are actually sent back to the model.
 {
-  let turn = 0;
+  const bodies = [];
   const server = createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => (body += chunk));
     request.on("end", () => {
-      turn += 1;
+      bodies.push(JSON.parse(body));
       response.writeHead(200, { "content-type": "text/event-stream" });
       const send = (chunk) => response.write(`data: ${JSON.stringify(chunk)}\n\n`);
-
-      if (turn === 1) {
-        send({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "list_files" } }] } }] });
-        send({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "{}" } }] } }] });
-        send({ choices: [{ delta: {}, finish_reason: "tool_calls" }] });
-      } else {
-        send({ choices: [{ delta: { content: "That directory has some files." } }] });
-        send({ choices: [{ delta: {}, finish_reason: "stop" }] });
-        send({ choices: [], usage: { prompt_tokens: 40, completion_tokens: 8, total_tokens: 48 } });
-      }
+      send({ choices: [{ delta: { content: `reply ${bodies.length}` } }] });
+      send({ choices: [{ delta: {}, finish_reason: "stop" }] });
+      send({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } });
       response.write("data: [DONE]\n\n");
       response.end();
     });
   });
 
-  await new Promise((resolve) => server.listen(0, resolve));
+  await new Promise((done) => server.listen(0, done));
   const { port } = server.address();
 
-  const child = spawn(process.execPath, [entry, "src", "--live"], {
+  const child = spawn(process.execPath, [entry, "--live"], {
     cwd: root,
     env: {
       ...process.env,
@@ -124,26 +139,32 @@ scenario(
       OPENAI_API_KEY: "test-key-for-a-local-server",
       OPENAI_MODEL: "local-model",
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
   let output = "";
   child.stdout.on("data", (chunk) => (output += chunk));
   child.stderr.on("data", (chunk) => (output += chunk));
-  const code = await new Promise((resolve) => child.on("close", resolve));
+  child.stdin.end("first question\nsecond question\n");
+
+  const code = await new Promise((done) => child.on("close", done));
   server.close();
 
-  const checks = [
+  const second = bodies[1]?.messages ?? [];
+  expect("runs via the adapter (--live, local server)", output, [
     ["a clean exit", code === 0],
-    ["two model calls", turn === 2],
-    ["the tool call to come back through the adapter", output.includes("[tool] list_files")],
-    ["the streamed answer", output.includes("That directory has some files.")],
-    ["a completed run", output.includes("stop: completed")],
-  ];
-  for (const [label, ok] of checks) {
-    if (!ok) failures.push(`--live against a local server: expected ${label}\n${output}`);
-  }
-  console.log(`  runs via the adapter (--live, local server): ${checks.every(([, ok]) => ok) ? "ok" : "checked"}`);
+    ["two model calls", bodies.length === 2],
+    ["both replies streamed", output.includes("reply 1") && output.includes("reply 2")],
+    [
+      "the second request to carry system, user, assistant, user",
+      second.map((message) => message.role).join(",") === "system,user,assistant,user",
+    ],
+    [
+      "the second request to repeat the first question",
+      JSON.stringify(second).includes("first question"),
+    ],
+  ]);
+  console.log(`  runs via the adapter (--live, local server): ok`);
   for (const line of output.trim().split("\n").slice(-3)) console.log(`    ${line}`);
 }
 

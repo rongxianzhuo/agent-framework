@@ -86,7 +86,7 @@ step("inspecting the tarball contents", () => {
     "package/README.md",
     "package/LICENSE",
     "package/docs/integration.md",
-    "package/examples/file-agent/index.mjs",
+    "package/examples/chat/index.mjs",
     "package/dist/index.js",
     "package/dist/index.d.ts",
     "package/dist/openai.js",

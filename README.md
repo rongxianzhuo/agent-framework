@@ -164,9 +164,9 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/file-agent/index.mjs`** — a complete agent (list and read files,
-  confined to one directory, with context trimming and streaming) that runs
-  offline in one command: `npm run example`.
+- **`examples/chat/index.mjs`** — a multi-turn chat bot in under ninety lines.
+  The part worth reading is how the transcript is carried between turns, since
+  the library keeps no state. Runs offline in one command: `npm run example`.
 
 ## Status
 
