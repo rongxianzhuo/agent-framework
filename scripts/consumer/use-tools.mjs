@@ -39,4 +39,8 @@ await writer.execute({ path: writePath, content: "a long initial value" }, { cal
 const written = await writer.execute({ path: writePath, content: "新" }, { callId: "write", turn: 2 });
 assert.equal(await readFile(writePath, "utf8"), "新");
 assert.deepEqual(written.content, [{ type: "text", text: `Wrote 3 bytes to ${writePath}.` }]);
+await writer.execute({ path: writePath, content: "one\r\ntwo\r\nthree" }, { callId: "write", turn: 3 });
+assert.deepEqual((await createReadFileTool().execute({ path: writePath, offset: 1, limit: 1 }, { callId: "range", turn: 1 })).content,
+  [{ type: "text", text: "two\r\n" }]);
+await assert.rejects(createReadFileTool().execute({ path: writePath, offset: 1 }, { callId: "range", turn: 1 }), /provided together/);
 console.log("  built-in tool consumer: passed");

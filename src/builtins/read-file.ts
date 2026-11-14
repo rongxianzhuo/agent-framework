@@ -3,34 +3,59 @@ import { isUtf8 } from "node:buffer";
 import { defineTool, type ToolDefinition } from "../tools/definition.js";
 import { textResult } from "../tools/results.js";
 import { requireAbsolutePath } from "./paths.js";
-import type { ReadFileToolOptions, ReadPathArgs } from "./options.js";
+import type { ReadFileArgs, ReadFileToolOptions } from "./options.js";
 
 /** Create an opt-in UTF-8 text reader. Filesystem access occurs only on execution. */
-export function createReadFileTool(options: ReadFileToolOptions = {}): ToolDefinition<ReadPathArgs> {
+export function createReadFileTool(options: ReadFileToolOptions = {}): ToolDefinition<ReadFileArgs> {
   const { maxBytes } = options;
   if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) {
     throw new Error("maxBytes must be a non-negative safe integer.");
   }
-  return defineTool<ReadPathArgs>({
+  return defineTool<ReadFileArgs>({
     name: options.name ?? "read_file",
-    description: "Read a local UTF-8 text file using an absolute path. Relative paths, obvious binary content and invalid UTF-8 are rejected." +
+    description: "Read a local UTF-8 text file using an absolute path. Supply both offset (zero-based lines to skip) and limit (positive maximum number of lines), or omit both to read the whole file. Relative paths, obvious binary content and invalid UTF-8 are rejected." +
       (maxBytes === undefined ? "" : ` Maximum file size: ${maxBytes} bytes.`),
     parameters: {
       type: "object",
-      properties: { path: { type: "string", minLength: 1, description: "Absolute path of the text file to read." } },
+      properties: {
+        path: { type: "string", minLength: 1, description: "Absolute path of the text file to read." },
+        offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: "Number of lines to skip, starting from zero. Must be provided together with limit." },
+        limit: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Maximum number of lines to return. Must be provided together with offset." },
+      },
       required: ["path"],
       additionalProperties: false,
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-    execute: async ({ path }, ctx) => {
+    execute: async ({ path, offset, limit }, ctx) => {
+      if ((offset === undefined) !== (limit === undefined)) {
+        throw new Error("offset and limit must be provided together or both omitted.");
+      }
+      if (offset !== undefined && limit !== undefined &&
+        (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1)) {
+        throw new Error("offset must be a non-negative safe integer and limit must be a positive safe integer.");
+      }
       requireAbsolutePath(path);
       const bytes = maxBytes === undefined
         ? await readFile(path, { signal: ctx.signal })
         : await readWithinLimit(path, maxBytes, ctx.signal);
       requireTextContent(bytes);
-      return textResult(bytes.toString("utf8"));
+      const text = bytes.toString("utf8");
+      return textResult(offset === undefined || limit === undefined ? text : selectLines(text, offset, limit));
     },
   });
+}
+
+/** Preserve original line endings; a trailing terminator does not add a line. */
+function selectLines(text: string, offset: number, limit: number): string {
+  const endings = /\r\n|\r|\n/g;
+  let start = offset === 0 ? 0 : -1;
+  let line = 0;
+  while (endings.exec(text) !== null) {
+    line++;
+    if (line === offset) start = endings.lastIndex;
+    if (line - offset === limit) return text.slice(start, endings.lastIndex);
+  }
+  return start === -1 ? "" : text.slice(start);
 }
 
 /** Check and read the same open file, bounded even if it grows after stat(). */

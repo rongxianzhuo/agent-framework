@@ -29,6 +29,73 @@ describe("built-in file readers", () => {
     expect(result.content).toEqual([{ type: "text", text: "你好, agent!\nSecond line." }]);
   });
 
+  it.each([
+    ["first", "one\ntwo\nthree", 0, 1, "one\n"],
+    ["middle", "one\ntwo\nthree", 1, 1, "two\n"],
+    ["through-eof", "one\ntwo\nthree", 1, 10, "two\nthree"],
+    ["past-eof", "one\ntwo\nthree", 3, 2, ""],
+    ["trailing-newline", "one\ntwo\n", 2, 1, ""],
+    ["blank-line", "one\n\nthree", 1, 1, "\n"],
+    ["crlf", "one\r\ntwo\r\nthree\r\n", 1, 1, "two\r\n"],
+    ["cr", "one\rtwo\rthree", 1, 1, "two\r"],
+    ["unicode", "第一行\n😀 第二行\n最后一行", 1, 1, "😀 第二行\n"],
+    ["empty", "", 0, 1, ""],
+    ["large-offset", "one\ntwo", Number.MAX_SAFE_INTEGER, 1, ""],
+  ] as const)("reads the requested %s line range", async (name, text, offset, limit, expected) => {
+    const path = join(directory, `range-${name}.txt`);
+    await writeFile(path, text);
+    expect((await createReadFileTool().execute({ path, offset, limit }, ctx)).content)
+      .toEqual([{ type: "text", text: expected }]);
+  });
+
+  it.each([{ offset: 0 }, { limit: 1 }])("rejects an unpaired range before reading: %j", async range => {
+    const tool = createReadFileTool();
+    const result = await executeTool(tool, {
+      id: "test", name: tool.name, args: { path: join(directory, "does-not-exist.txt"), ...range },
+    }, ctx);
+    expect(result.message.isError).toBe(true);
+    expect(result.message.content[0]).toMatchObject({ text: expect.stringContaining("provided together") });
+  });
+
+  it.each([
+    { offset: -1, limit: 1 }, { offset: 0.5, limit: 1 },
+    { offset: 0, limit: 0 }, { offset: 0, limit: -1 }, { offset: 0, limit: 1.5 },
+    { offset: Number.MAX_SAFE_INTEGER + 1, limit: 1 },
+    { offset: 0, limit: Number.MAX_SAFE_INTEGER + 1 },
+  ])("rejects invalid range values: %j", async range => {
+    const tool = createReadFileTool();
+    const result = await executeTool(tool, {
+      id: "test", name: tool.name, args: { path: join(directory, "text.txt"), ...range },
+    }, ctx);
+    expect(result.error?.kind).toBe("invalidToolCall");
+  });
+
+  it("applies the full-file size and binary checks before selecting lines", async () => {
+    await expect(createReadFileTool({ maxBytes: 1 }).execute({
+      path: join(directory, "text.txt"), offset: 0, limit: 1,
+    }, ctx)).rejects.toThrow("maximum size");
+    await expect(createReadFileTool().execute({
+      path: join(directory, "picture.bin"), offset: 0, limit: 1,
+    }, ctx)).rejects.toThrow("binary data");
+  });
+
+  it("lets the model correct an unpaired range and continue the tool loop", async () => {
+    const path = join(directory, "range-agent.txt");
+    await writeFile(path, "one\ntwo\nthree");
+    const agent = new Agent({
+      client: fauxClient({ turns: [
+        { toolCalls: [{ id: "bad", name: "read_file", args: { path, offset: 1 } }] },
+        { toolCalls: [{ id: "good", name: "read_file", args: { path, offset: 1, limit: 1 } }] },
+        { text: "Read the second line." },
+      ] }), model: "test", tools: [createReadFileTool()],
+    });
+    const result = await agent.run("Read the second line.");
+    const outputs = result.messages.filter(message => message.role === "toolResult");
+    expect(result.stopReason).toBe("completed");
+    expect(outputs[0]?.isError).toBe(true);
+    expect(outputs[1]?.content).toEqual([{ type: "text", text: "two\n" }]);
+  });
+
   it.each([5, 6, 7])("enforces a %s-byte limit using UTF-8 bytes rather than characters", async maxBytes => {
     const path = join(directory, `size-${maxBytes}.txt`);
     await writeFile(path, "你好"); // Two characters, six UTF-8 bytes.
@@ -70,7 +137,7 @@ describe("built-in file readers", () => {
     const tool = createReadFileTool(options);
     options.maxBytes = 1000;
     await expect(tool.execute({ path: join(directory, "text.txt") }, ctx)).rejects.toThrow("maximum size of 0 bytes");
-    expect(Object.keys(tool.parameters.properties!)).toEqual(["path"]);
+    expect(Object.keys(tool.parameters.properties!)).toEqual(["path", "offset", "limit"]);
     const result = await executeTool(tool, {
       id: "test", name: tool.name, args: { path: join(directory, "text.txt"), maxBytes: 1000 },
     }, ctx);

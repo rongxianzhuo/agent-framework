@@ -25,3 +25,9 @@ export interface WriteFileArgs {
 export interface ReadPathArgs {
   path: string;
 }
+
+/** Read all text, or skip zero-based lines and return at most limit lines. */
+export type ReadFileArgs = ReadPathArgs & (
+  | { offset?: never; limit?: never }
+  | { offset: number; limit: number }
+);

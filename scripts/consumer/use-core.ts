@@ -9,7 +9,7 @@ import * as core from "agent-framework";
 import { fauxClient } from "agent-framework/faux";
 import { runConformance, type ConformanceResult } from "agent-framework/conformance";
 import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-framework";
-import { createReadFileTool, createReadImageTool, createWriteFileTool, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions, type WriteFileArgs, type WriteFileToolOptions } from "agent-framework/tools";
+import { createReadFileTool, createReadImageTool, createWriteFileTool, type ReadFileArgs, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions, type WriteFileArgs, type WriteFileToolOptions } from "agent-framework/tools";
 
 const tool = defineTool<{ path: string }>({
   name: "read",
@@ -104,11 +104,15 @@ export function builtinReaders() {
   const image = createReadImageTool();
   const args: ReadPathArgs = { path: "/absolute/file.txt" };
   const execute = () => text.execute(args, { callId: "test", turn: 1 });
+  const range: ReadFileArgs = { ...args, offset: 1, limit: 20 };
+  const executeRange = () => text.execute(range, { callId: "range", turn: 1 });
+  // @ts-expect-error offset and limit must be supplied together
+  const invalidRange = () => text.execute({ path: args.path, offset: 1 }, { callId: "range", turn: 1 });
   // @ts-expect-error built-in tools retain their typed path argument
   const invalid = () => image.execute({ path: 123 }, { callId: "test", turn: 1 });
   // @ts-expect-error maxBytes is currently a text-reader option only
   const invalidImage = () => createReadImageTool({ maxBytes: 1000 });
-  return { text, image, execute, invalid, invalidImage };
+  return { text, image, execute, executeRange, invalidRange, invalid, invalidImage };
 }
 
 // A tool's arguments are typed by the definition, not by `unknown`.

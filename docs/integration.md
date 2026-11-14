@@ -307,8 +307,9 @@ const agent = new Agent({
 });
 ```
 
-The readers return ordinary `ToolDefinition<ReadPathArgs>` values; their shared
-argument shape is `{ path: string }`. The writer returns
+The text reader returns `ToolDefinition<ReadFileArgs>` and the image reader
+returns `ToolDefinition<ReadPathArgs>`. Both accept `{ path: string }`; the text
+reader additionally supports the paired `offset` and `limit` fields. The writer returns
 `ToolDefinition<WriteFileArgs>` with `{ path: string, content: string }` arguments.
 All three reject relative paths, including
 Windows drive-relative and root-only paths. There is no working-directory fallback.
@@ -340,6 +341,26 @@ limit is accepted, while an oversized file returns a tool error without partial
 content. The reader checks the size on an open handle, then reads that same file
 in bounded chunks, at most `maxBytes + 1` bytes, so growth after the check cannot
 cause an unbounded read. Handles are closed on success, failure and cancellation.
+
+For line ranges the model supplies both `offset` and `limit`, for example:
+
+```json
+{ "path": "/absolute/file.txt", "offset": 10, "limit": 20 }
+```
+
+`offset` is the number of lines to skip, starting at zero; `limit` is the maximum
+number of lines to return. Both must be safe integers, with `offset >= 0` and
+`limit >= 1`. The example returns lines 11 through 30, or fewer at EOF. Omitting
+both preserves full-file reads; supplying just one returns a tool error before
+any file I/O. The exported `ReadFileArgs` union also enforces pairing in TypeScript.
+The schema describes each field, and the tool checks their dependency at runtime.
+
+Line selection preserves LF, CRLF or CR endings, including a selected line's
+terminator if present. Blank lines count as lines; a final terminator does not
+create an extra line. Empty files and offsets beyond EOF return empty text.
+Selection happens after the existing full-file size, binary and UTF-8 checks;
+these parameters do not bypass `maxBytes` or implement streaming access to files
+larger than the configured limit.
 
 Names and timeouts use the same definition validation as custom tools. Each invocation creates an
 independent definition and schema. File I/O occurs only when the tool executes,

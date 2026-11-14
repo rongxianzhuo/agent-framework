@@ -162,6 +162,18 @@ maximum file size in bytes. Omit it for no limit; zero allows only empty files.
 Files exactly at the limit are accepted. Larger files fail without returning
 partial text. Reads are bounded even if a file grows after its size is checked.
 
+The model may pass `offset` and `limit` together to read a line range:
+
+```json
+{ "path": "/absolute/file.txt", "offset": 10, "limit": 20 }
+```
+
+This skips 10 lines and returns at most 20 lines (lines 11–30). `offset` is a
+non-negative integer, `limit` is a positive integer, and both must be supplied or
+both omitted. Omitting both reads the whole file. Original line endings are
+preserved; an offset beyond EOF returns empty text. `maxBytes` still limits the
+entire file, even when a line range is requested.
+
 ## Image inputs
 
 Use a vision-capable model and pass text and images as user content blocks:
