@@ -494,7 +494,15 @@ if (!allPassed(results)) process.exit(1);
 
 `runConformance` returns plain data, not test-framework objects, so it works in
 Vitest, in Jest, in node:test, or in a script. Options: `only`, `skip`,
-`timeoutMs`, `abortGraceMs`, `toolName`.
+`timeoutMs`, `abortGraceMs`, `toolName`, `providerOptions`.
+
+`maxOutputTokens` is the one option worth setting deliberately. It is unset by
+default, so the suite sends no output cap and the cost of a run is whatever the
+model decides to generate. A cap used to be the default and made checks fail for
+budget reasons — a reasoning model spends the budget thinking before it writes,
+which truncated tool-call JSON mid-object — so if you run this against an
+expensive model, set a cap and accept that a failure may mean "ran out of room"
+rather than "wrong".
 
 ## Testing without a model
 

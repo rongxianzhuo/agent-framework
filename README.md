@@ -28,8 +28,11 @@ argument.
   official `openai` SDK — and it is reachable only through `agent-core/openai`.
   `npm install` will put it on disk either way; a core-only agent never loads it,
   and `npm run check:package` fails if that ever changes.
-- **No global state.** Several instances can run in the same process. No
-  environment variables, no config files, no cwd assumptions, no singletons.
+- **No global state.** Several instances can run in the same process. The core
+  reads no environment variables, no config files, no working directory, and holds
+  no singletons. (The OpenAI adapter does fall back to `OPENAI_API_KEY` when no key
+  is passed to it, which is the one deliberate exception and is documented on that
+  option.)
 - **No I/O of its own.** The core never touches the filesystem or the network;
   it only calls the tool and client objects you hand it.
 - **Data in, data out.** `run` returns the full message list rather than hiding
@@ -46,7 +49,7 @@ Four, so that importing the core does not pull an adapter into your process:
 | Import | What you get |
 | --- | --- |
 | `agent-core` | Loop, messages, tools, schema, hooks. Node built-ins only. |
-| `agent-core/openai` | The OpenAI Chat Completions adapter, plus the SSE parser and message mapping. |
+| `agent-core/openai` | The OpenAI Chat Completions adapter, plus the message mapping. Loads the `openai` SDK. |
 | `agent-core/faux` | A scripted `LLMClient` for tests. |
 | `agent-core/conformance` | `runConformance`, for anyone writing their own adapter. |
 
