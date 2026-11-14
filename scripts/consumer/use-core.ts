@@ -4,7 +4,7 @@
 // or sloppy declaration fails here rather than in somebody else's editor. The
 // `@ts-expect-error` lines are assertions: if the error stops happening, this
 // file stops compiling.
-import { Agent, run, defineTool, textResult, type AgentInput, type AgentOptions, type AgentRunOptions, type Message, type RunHooks, type RunResult } from "agent-core";
+import { Agent, run, defineTool, textResult, type AgentInput, type AgentOptions, type AgentRunOptions, type CompressionContext, type ContextCompressionStrategy, type LastRequestInfo, type Message, type RunHooks, type RunResult } from "agent-core";
 import * as core from "agent-core";
 import { fauxClient } from "agent-core/faux";
 import { runConformance, type ConformanceResult } from "agent-core/conformance";
@@ -46,13 +46,19 @@ export async function go(): Promise<string> {
 }
 
 export async function converse(input: AgentInput): Promise<RunResult> {
+  const strategy: ContextCompressionStrategy = {
+    shouldCompress: ({ lastRequest }: CompressionContext) => (lastRequest?.usage?.inputTokens ?? 0) > 200_000,
+    compress: ({ messages }) => [...messages],
+  };
   const options: AgentOptions = {
     client: fauxClient({ turns: () => ({ text: "ok" }) }),
-    model: "m", system: "Be brief.", tools: [tool], hooks,
+    model: "m", system: "Be brief.", tools: [tool], hooks, contextCompression: strategy,
   };
   const agent = new Agent(options);
   const execution: AgentRunOptions = { maxTurns: 2, signal: new AbortController().signal };
   await agent.run(input, execution);
+  const latest: LastRequestInfo | undefined = agent.lastRequest;
+  if (latest?.usage !== undefined) latest.usage.inputTokens.toFixed();
   const saved: Message[] = agent.messages;
   agent.reset();
   agent.replaceMessages(saved);

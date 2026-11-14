@@ -124,6 +124,31 @@ await save(result.messages);
 `run` returns `{ messages, usage, turns, stopReason, error? }`. It does not throw
 for model or tool failures — those come back in the result.
 
+## Context compression
+
+`Agent` optionally accepts an application-defined strategy:
+
+```ts
+const agent = new Agent({
+  client,
+  model: "gpt-4o-mini",
+  contextCompression: {
+    shouldCompress: ({ lastRequest }) => {
+      const usage = lastRequest?.usage;
+      return usage !== undefined && usage.inputTokens + usage.outputTokens > 200_000;
+    },
+    compress: ({ messages, signal }) => summarizeHistory(messages, signal),
+  },
+});
+```
+
+`summarizeHistory` is your function returning a replacement `Message[]`. Checks
+run before every model request, including turns after tools; valid compression
+permanently replaces history. Omit the strategy or set it to `null` to disable it.
+`agent.lastRequest` exposes the latest individual request's model, provider and
+optional usage across runs. It is not the cumulative `RunResult.usage`, nor an
+exact estimate of the next request. See the guide for failure and hook semantics.
+
 ## Hooks: the caller's three decisions
 
 The core has no opinions about how much context fits, which tools are allowed, or

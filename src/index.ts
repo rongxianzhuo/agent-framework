@@ -75,6 +75,7 @@ export {
 // Loop
 export { run, type RunOptions, type RunResult } from "./runtime/run.js";
 export { Agent, type AgentInput, type AgentOptions, type AgentRunOptions } from "./runtime/agent.js";
+export type { CompressionContext, ContextCompressionStrategy, LastRequestInfo } from "./runtime/compression.js";
 
 // Hooks: the caller's interception points in a run
 export {

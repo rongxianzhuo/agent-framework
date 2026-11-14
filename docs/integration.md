@@ -117,6 +117,69 @@ tool-call/result pairing before accepting history. Concurrent runs or history
 edits during a run are rejected; use separate instances for separate conversations.
 Input, rendering, storage and retry policy remain application responsibilities.
 
+## Context compression strategies
+
+Set `AgentOptions.contextCompression` to a `ContextCompressionStrategy` object
+or a class implementing that interface. Omitting it or passing `null` disables
+compression; there is no built-in threshold, token estimator or summarizer.
+
+```ts
+import { Agent, type ContextCompressionStrategy } from "agent-core";
+
+const strategy: ContextCompressionStrategy = {
+  shouldCompress: ({ lastRequest }) => {
+    const usage = lastRequest?.usage;
+    return usage !== undefined && usage.inputTokens + usage.outputTokens > 200_000;
+  },
+  compress: ({ messages, signal }) => summarizeHistory(messages, signal),
+};
+
+const agent = new Agent({ client, model: "gpt-4o-mini", contextCompression: strategy });
+await agent.run("Hello");
+console.log(agent.lastRequest?.usage); // usage for the latest model request only
+```
+
+`summarizeHistory` is application code that returns a complete replacement
+`Message[]`; it may call a separate model or use deterministic trimming. Keep
+system instructions and any tool-call/result pairs you still need. Both strategy
+methods can be synchronous or asynchronous. Each receives `CompressionContext`:
+
+- `messages`: a snapshot of the current transcript.
+- `request`: the request before user hooks, including tool definitions and output
+  settings, for your own budget estimate. Its messages share the context snapshot.
+- `signal`: the current run's cancellation signal, if supplied.
+- `lastRequest`: the latest attempted model request's model, provider and optional
+  `usage`; absent before the first request.
+
+Agent checks once before every model request, including requests following tool
+results within the same `run()`. If `shouldCompress` returns true, `compress` runs
+once. Its output uses the existing permanent history replacement mechanism.
+The internal strategy hook runs before user `onBeforeRequest` hooks, including
+per-call overrides. Later temporary edits do not alter the compressed history;
+a later explicit permanent replacement wins. Compression never re-executes tools.
+
+The whole hook chain and both outgoing/stored transcripts must validate before
+history is committed. Predicate/compression exceptions return `kind: "hook"`;
+broken tool pairing returns `kind: "invalidRequest"`. Neither changes history.
+Cancellation before commit returns an aborted run and retains the original
+history. Once committed, the compressed history remains even if the next model
+request fails. No original-history archive is retained automatically.
+
+`lastRequest` updates for every model request and survives subsequent
+`agent.run()` calls. It records the actual model selected by request hooks. Its
+`usage` is absent when a request fails or no usage is reported, rather than
+reusing an older successful request's usage or inventing zero. Hook failures
+before a model request leave the previous request metadata unchanged.
+`reset()` and `replaceMessages()` clear this metadata; restored transcripts do
+not reconstruct it. `agent.lastRequest` and strategy metadata are detached
+snapshots. Opaque tool-result `details` remain caller-owned references.
+
+Reported usage describes the previous request, not the next one: new user
+messages, tool output and later hook edits are not counted yet. Use the current
+request to supplement that signal when necessary. Strategy model calls are
+external and do not add to the Agent's own request usage accounting. The low-level
+`run()` stays stateless; use its hooks directly for custom context management.
+
 ## Four entry points
 
 | Import | Contents |

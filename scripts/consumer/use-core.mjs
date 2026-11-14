@@ -96,6 +96,26 @@ await agent.run("continue");
 if (conversationClient.requests[3]?.messages.length !== 3) failures.push("Agent did not retain compressed history");
 if (agent.messages[0]?.content[0]?.text !== "summary") failures.push("Permanent replacement was not saved");
 
+let compressions = 0;
+const compressionClient = fauxClient({ turns: [
+  { text: "large context", usage: { inputTokens: 200_000, outputTokens: 10, totalTokens: 200_010, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  { text: "small context", usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+] });
+const compressedAgent = new Agent({
+  client: compressionClient, model: "demo",
+  contextCompression: {
+    shouldCompress: ({ lastRequest }) => (lastRequest?.usage?.inputTokens ?? 0) >= 200_000,
+    compress: () => {
+      compressions++;
+      return [{ role: "user", content: [{ type: "text", text: "strategy summary" }] }];
+    },
+  },
+});
+await compressedAgent.run("first");
+await compressedAgent.run("second");
+if (compressions !== 1 || compressionClient.requests[1]?.messages.length !== 1) failures.push("Compression strategy did not replace history");
+if (compressedAgent.lastRequest?.usage?.inputTokens !== 20) failures.push("Latest request usage was not updated");
+
 export const problems = failures;
 if (failures.length > 0) {
   for (const failure of failures) console.error(`  FAIL ${failure}`);
