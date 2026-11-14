@@ -45,6 +45,32 @@ describe("toOpenAIMessages", () => {
     });
   });
 
+  it("sends URL images without downloading or wrapping them in a data URL", () => {
+    expect(toOpenAIMessages([{
+      role: "user", content: [{ type: "image", url: "https://example.test/photo.png?version=1" }],
+    }])).toEqual([{
+      role: "user", content: [{ type: "image_url", image_url: { url: "https://example.test/photo.png?version=1" } }],
+    }]);
+  });
+
+  it("preserves interleaved text, URL images and Base64 images", () => {
+    expect(toOpenAIMessages([{
+      role: "user", content: [
+        { type: "text", text: "Compare these:" },
+        { type: "image", url: "https://example.test/a.jpg" },
+        { type: "text", text: "and" },
+        { type: "image", mimeType: "image/png", data: "AAAA" },
+      ],
+    }])).toEqual([{
+      role: "user", content: [
+        { type: "text", text: "Compare these:" },
+        { type: "image_url", image_url: { url: "https://example.test/a.jpg" } },
+        { type: "text", text: "and" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+      ],
+    }]);
+  });
+
   it("drops thinking blocks by default", () => {
     const messages: Message[] = [
       {
@@ -222,6 +248,57 @@ describe("toOpenAIMessages", () => {
       "assistant",
       "tool",
     ]);
+  });
+
+  it("attaches tool images after all tool results and keeps provenance on replay", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant", content: [], stopReason: "toolUse",
+        toolCalls: [{ id: "c1", name: "read_image", args: {} }, { id: "c2", name: "read_file", args: {} }],
+      },
+      {
+        role: "toolResult", toolCallId: "c1", toolName: "read_image", isError: false,
+        content: [
+          { type: "text", text: "First image" },
+          { type: "image", mimeType: "image/png", data: "AAAA" },
+          { type: "text", text: "Second image" },
+          { type: "image", url: "https://example.test/photo.jpg" },
+        ],
+      },
+      { role: "toolResult", toolCallId: "c2", toolName: "read_file", isError: false, content: [{ type: "text", text: "notes" }] },
+      { role: "assistant", content: [{ type: "text", text: "A description." }], toolCalls: [], stopReason: "stop" },
+      { role: "user", content: [{ type: "text", text: "More detail?" }] },
+    ];
+    const before = structuredClone(messages);
+    const mapped = toOpenAIMessages(messages);
+    expect(mapped.map(m => m.role)).toEqual(["assistant", "tool", "tool", "user", "assistant", "user"]);
+    expect(mapped[1]).toMatchObject({ role: "tool", tool_call_id: "c1", content: "First imageSecond image" });
+    expect(mapped[2]).toMatchObject({ role: "tool", tool_call_id: "c2", content: "notes" });
+    expect(mapped[3]).toEqual({ role: "user", content: [
+      { type: "text", text: 'Output from tool "read_image" (call "c1"):' },
+      { type: "text", text: "First image" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+      { type: "text", text: "Second image" },
+      { type: "image_url", image_url: { url: "https://example.test/photo.jpg" } },
+    ] });
+    expect(messages).toEqual(before);
+  });
+
+  it("does not lose image-only results from multiple tools", () => {
+    const messages: Message[] = ["one", "two"].map(id => ({
+      role: "toolResult", toolCallId: id, toolName: "read_image", isError: false,
+      content: [{ type: "image", mimeType: "image/png", data: id }],
+    }));
+    const mapped = toOpenAIMessages(messages);
+    expect(mapped.map(m => m.role)).toEqual(["tool", "tool", "user"]);
+    expect(mapped[0]).toMatchObject({ tool_call_id: "one", content: expect.stringContaining("Image output") });
+    expect(mapped[1]).toMatchObject({ tool_call_id: "two" });
+    expect(mapped[2]).toEqual({ role: "user", content: [
+      { type: "text", text: 'Output from tool "read_image" (call "one"):' },
+      { type: "image_url", image_url: { url: "data:image/png;base64,one" } },
+      { type: "text", text: 'Output from tool "read_image" (call "two"):' },
+      { type: "image_url", image_url: { url: "data:image/png;base64,two" } },
+    ] });
   });
 });
 

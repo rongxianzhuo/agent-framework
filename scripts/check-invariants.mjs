@@ -8,10 +8,10 @@
  *
  *   1. The only runtime dependency is the `openai` SDK, used by one adapter.
  *   2. Only concrete provider adapters may import external packages.
- *   3. Modules respect the core, tools, runtime and provider boundaries.
+ *   3. Modules respect the core, tools, runtime, builtins and provider boundaries.
  *   4. Every entry point lists its exports explicitly; no `export *`.
  *   5. No credential is committed.
- *   6. The core entry point does not reach a provider or the conformance suite.
+ *   6. The core entry point does not reach providers, built-ins or the conformance suite.
  *
  * Run directly (`node scripts/check-invariants.mjs`) or via `npm run check`.
  */
@@ -59,6 +59,7 @@ const allowedLayers = {
   core: new Set(["core"]),
   tools: new Set(["core", "tools"]),
   runtime: new Set(["core", "tools", "runtime"]),
+  builtins: new Set(["core", "tools", "builtins"]),
   "providers/shared": new Set(["core", "providers/shared"]),
 };
 
@@ -98,7 +99,7 @@ for (const file of srcFiles) {
 // 4. Explicit exports only, in every entry point. Comments are stripped first so
 // that prose about the rule (this file's own README text, for instance) does not
 // trip the check.
-const ENTRY_POINTS = ["index", "openai", "faux", "conformance"];
+const ENTRY_POINTS = ["index", "openai", "faux", "conformance", "tools"];
 
 for (const name of ENTRY_POINTS) {
   const path = join(root, "src", `${name}.ts`);
@@ -120,7 +121,7 @@ for (const name of ENTRY_POINTS) {
 // an embedding agent's process. Checked transitively through the relative import
 // graph rooted at src/index.ts, not just the file's own imports: a two-hop path
 // is exactly how this would slip back in.
-const CORE_FORBIDDEN = [/^src\/providers\/(?!shared\/)/, /^src\/testing\//];
+const CORE_FORBIDDEN = [/^src\/providers\/(?!shared\/)/, /^src\/testing\//, /^src\/builtins\//, /^src\/tools\.ts$/];
 const coreVisited = new Set();
 const coreQueue = [join(root, "src/index.ts")];
 
@@ -132,7 +133,7 @@ while (coreQueue.length > 0) {
 
   for (const pattern of CORE_FORBIDDEN) {
     if (pattern.test(rel)) {
-      failures.push(`${rel} is reachable from src/index.ts; the core entry point must stay provider-free`);
+      failures.push(`${rel} is reachable from src/index.ts; the core entry point must not load optional modules`);
     }
   }
 

@@ -3,7 +3,7 @@
 // Proves `agent-core/openai` resolves and works after a real `npm install`, with
 // no API key and no network egress.
 import { createServer } from "node:http";
-import { run, defineTool, textResult } from "agent-core";
+import { run, defineTool } from "agent-core";
 import { openaiClient } from "agent-core/openai";
 
 let lastBody;
@@ -41,14 +41,21 @@ const noop = defineTool({
   name: "noop",
   description: "Does nothing.",
   parameters: { type: "object", properties: { n: { type: "number" } } },
-  execute: (args) => textResult(`got ${args.n}`),
+  execute: (args) => ({ content: [
+    { type: "text", text: `got ${args.n}` },
+    { type: "image", mimeType: "image/png", data: "AAAA" },
+  ] }),
 });
 
 const client = openaiClient({ baseURL: `http://127.0.0.1:${port}/v1`, apiKey: "test-key-from-consumer" });
 const result = await run({
   client,
   model: "consumer-model",
-  messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  messages: [{ role: "user", content: [
+    { type: "text", text: "Describe these images." },
+    { type: "image", url: "https://images.example.test/photo.jpg" },
+    { type: "image", mimeType: "image/png", data: "AAAA" },
+  ] }],
   tools: [noop],
 });
 
@@ -63,9 +70,16 @@ if (result.usage.totalTokens !== 14) failures.push(`expected 14 tokens, got ${re
 if (lastBody?.model !== "consumer-model") failures.push("model was not forwarded");
 if (lastBody?.stream !== true) failures.push("stream was not requested");
 if (lastBody?.tools?.[0]?.function?.name !== "noop") failures.push("tools were not serialised");
-// Turn 2 must carry the assistant's tool call followed by the result as `tool`.
-if (lastBody?.messages?.at(-1)?.role !== "tool") {
+const imageParts = lastBody?.messages?.[0]?.content;
+if (imageParts?.[1]?.image_url?.url !== "https://images.example.test/photo.jpg") failures.push("URL image was not preserved");
+if (imageParts?.[2]?.image_url?.url !== "data:image/png;base64,AAAA") failures.push("Base64 image was not encoded");
+// The complete tool batch must precede the supplementary image message.
+if (lastBody?.messages?.at(-2)?.role !== "tool") {
   failures.push(`the tool result was not sent back as role "tool": ${lastBody?.messages?.map((m) => m.role).join(",")}`);
+}
+const toolImageParts = lastBody?.messages?.at(-1)?.content;
+if (lastBody?.messages?.at(-1)?.role !== "user" || toolImageParts?.[2]?.image_url?.url !== "data:image/png;base64,AAAA") {
+  failures.push("tool image was not attached after the tool result");
 }
 
 if (failures.length > 0) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * A multi-turn chat bot with a local file-reading tool, against DeepSeek.
+ * A multi-turn chat bot with local text and image reading tools.
  *
  *   npm run example
  *
@@ -8,21 +8,22 @@
  * DeepSeek; both can be overridden with `OPENAI_BASE_URL` and `OPENAI_MODEL`.
  *
  * Agent owns the configuration and conversation history. This example owns
- * the file tool, terminal input and event rendering.
+ * terminal input and event rendering; file tools come from agent-core/tools.
  *
  * Type at `you>`, or `/exit` to quit.
  * Ask it to read a text file by its absolute path and summarize it.
+ * To inspect an image, configure a vision-capable endpoint/model and give its
+ * absolute path. read_image supports PNG, JPEG, GIF and WebP.
  *
  * The bot shows the model's reasoning above its answer, because DeepSeek's
  * thinking mode produces a lot of it and watching it is half the point of
  * running a chat demo against a reasoning model. Thinking display and reasoning
  * effort are fixed below; edit the constants to change them.
  */
-import { readFile } from "node:fs/promises";
-import { isAbsolute, parse } from "node:path";
 import { createInterface } from "node:readline";
 
-import { Agent, defineTool, textResult } from "agent-core";
+import { Agent } from "agent-core";
+import { createReadFileTool, createReadImageTool } from "agent-core/tools";
 import { openaiClient } from "agent-core/openai";
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -48,30 +49,12 @@ const model = process.env.OPENAI_MODEL ?? "deepseek-flash";
 const reasoningEffort = "high";
 const showThinking = true;
 
-const readFileTool = defineTool({
-  name: "read_file",
-  description: "Read a local UTF-8 text file using an absolute path. Relative paths are not accepted.",
-  parameters: {
-    type: "object",
-    properties: { path: { type: "string", minLength: 1, description: "Absolute path of the text file to read." } },
-    required: ["path"],
-    additionalProperties: false,
-  },
-  execute: async ({ path }, ctx) => {
-    // On Windows, a root-only path such as \file still depends on the current drive.
-    if (!isAbsolute(path) || (process.platform === "win32" && parse(path).root.length === 1)) {
-      throw new Error("An absolute file path is required. Ask the user for the full path.");
-    }
-    return textResult(await readFile(path, { encoding: "utf8", signal: ctx.signal }));
-  },
-});
-
 const agent = new Agent({
   client,
   model,
-  tools: [readFileTool],
+  tools: [createReadFileTool(), createReadImageTool()],
   reasoningEffort,
-  system: "You are a helpful assistant. Keep answers short. Use read_file when you need to inspect a local file; do not guess its contents. The tool requires an absolute path. If the user has not provided one, ask for it rather than guessing a path.",
+  system: "You are a helpful assistant. Keep answers short. Use read_file for text files and read_image for images; do not guess their contents. Both tools require an absolute path. If the user has not provided one, ask for it rather than guessing a path.",
 });
 
 const terminal = process.stdin.isTTY;

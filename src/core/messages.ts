@@ -29,18 +29,26 @@ export interface TextBlock {
   text: string;
 }
 
-/**
- * Base64-encoded image, no data-URL prefix.
- *
- * `data` is kept as base64 rather than bytes so a whole conversation stays
- * valid JSON on disk and over the wire.
- */
-export interface ImageBlock {
+/** An image supplied as inline Base64 or a remotely accessible URL. */
+export type ImageBlock = Base64ImageBlock | UrlImageBlock;
+
+/** Base64-encoded image, no data-URL prefix; stays JSON-serializable. */
+export interface Base64ImageBlock {
   type: "image";
   /** e.g. `image/png`, `image/jpeg`. */
   mimeType: string;
   /** Base64 payload, without a `data:` prefix. */
   data: string;
+  url?: never;
+}
+
+/** The provider fetches this URL; the core does not download the image. */
+export interface UrlImageBlock {
+  type: "image";
+  /** A fully qualified HTTP(S) URL accessible to the model provider. */
+  url: string;
+  data?: never;
+  mimeType?: never;
 }
 
 /**

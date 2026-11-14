@@ -7,6 +7,7 @@ import {
   type AgentEvent,
   type AssistantMessage,
   type ContentBlock,
+  type ImageBlock,
   type Message,
   type RunStopReason,
   type StopReason,
@@ -131,6 +132,18 @@ describe("JSON round trip", () => {
       content: [{ type: "image", mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" }],
     };
     expect(JSON.parse(JSON.stringify(msg))).toEqual(msg);
+  });
+
+  it("accepts serializable URL images and requires exactly one image source", () => {
+    const url: ImageBlock = { type: "image", url: "https://example.test/image.png" };
+    expect(JSON.parse(JSON.stringify(url))).toEqual(url);
+    // @ts-expect-error an image must have a source
+    const missing: ImageBlock = { type: "image" };
+    // @ts-expect-error Base64 data and URL are mutually exclusive
+    const both: ImageBlock = { type: "image", url: "https://example.test/image.png", mimeType: "image/png", data: "AAAA" };
+    // @ts-expect-error Base64 requires a MIME type
+    const noMime: ImageBlock = { type: "image", data: "AAAA" };
+    expect([missing, both, noMime]).toHaveLength(3);
   });
 });
 

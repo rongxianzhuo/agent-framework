@@ -5,11 +5,12 @@ who has a project and wants a model loop in it, not for someone who wants to
 understand this repository.
 
 If you would rather read code than prose, `examples/index.mjs` is a
-multi-turn chat bot with a local `read_file` tool in one file, and its loop is the
+multi-turn chat bot with local `read_file` and `read_image` tools in one file, and its loop is the
 shape every embedding agent starts from. It targets DeepSeek's endpoint and needs
 `OPENAI_API_KEY`. Run `npm run example`, then ask it to read a text file by its
-absolute path. The tool rejects relative paths, and the system prompt does not
-include the current working directory.
+absolute path. For images, configure a vision-capable endpoint/model and ask it
+to inspect a PNG, JPEG, GIF or WebP file by absolute path. Both tools reject
+relative paths, and the system prompt does not include the current working directory.
 
 ## What you are getting
 
@@ -117,6 +118,68 @@ tool-call/result pairing before accepting history. Concurrent runs or history
 edits during a run are rejected; use separate instances for separate conversations.
 Input, rendering, storage and retry policy remain application responsibilities.
 
+## Image understanding
+
+Image input works through the OpenAI-compatible Chat Completions adapter when
+the selected endpoint and model support vision. `Agent.run()` accepts structured
+user content, so no extra vision-specific execution API is needed:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { Agent } from "agent-core";
+
+const agent = new Agent({ client, model: "your-vision-model" });
+const imageBase64 = (await readFile("/absolute/path/photo.png")).toString("base64");
+
+await agent.run([
+  { type: "text", text: "Describe these two images." },
+  { type: "image", mimeType: "image/png", data: imageBase64 },
+  { type: "image", url: "https://example.com/photo.jpg" },
+]);
+await agent.run("What differences do you see?");
+```
+
+`ImageBlock` is a union of `Base64ImageBlock` and `UrlImageBlock`:
+
+- Base64: `{ type: "image", mimeType, data }`, where `data` is raw Base64 without
+  a data-URL prefix. The existing format is unchanged.
+- URL: `{ type: "image", url }`, where `url` is a fully qualified HTTP(S) URL
+  accessible to the provider. No MIME type or Base64 payload is needed.
+
+Each block uses exactly one source. You may interleave text and multiple images;
+their order is preserved. Low-level `run()` uses the same blocks in a user
+message's `content`. The adapter encodes both forms as `image_url` parts, using a
+data URL for Base64 and the original URL for remote images. The core does not
+fetch remote images or read local files; file loading in the snippet is caller code.
+
+Image blocks stay JSON-serializable and remain in conversation history, so later
+questions resend those images. Existing history replacement hooks and compression
+strategies can retain or remove image blocks. The framework does not upload files,
+manage file IDs, cache images or automatically summarize them.
+
+### Images returned by tools
+
+Tools return images in `ToolResult.content`, using the same Base64 or URL blocks:
+
+```ts
+return {
+  content: [{ type: "image", mimeType: "image/png", data: imageBase64 }],
+};
+```
+
+Use an image block rather than wrapping Base64 in `textResult()`, so the model
+receives image input instead of encoded text. The example's `read_image` reads
+the supplied absolute path, detects PNG/JPEG/GIF/WebP from the file signature,
+and returns raw Base64 plus its MIME type. Read errors and unsupported formats
+become ordinary failed tool results.
+
+Chat Completions tool messages accept text, so this adapter keeps each `tool`
+response and attaches its images in a supplementary `user` message after the
+entire contiguous batch of tool results. Each image output is labeled with the
+tool name and call ID. This preserves tool-call pairing even for parallel calls.
+This conversion affects only the wire request: stored history retains the
+original `toolResult` image blocks, and followup requests replay them correctly.
+
 ## Context compression strategies
 
 Set `AgentOptions.contextCompression` to a `ContextCompressionStrategy` object
@@ -180,7 +243,7 @@ request to supplement that signal when necessary. Strategy model calls are
 external and do not add to the Agent's own request usage accounting. The low-level
 `run()` stays stateless; use its hooks directly for custom context management.
 
-## Four entry points
+## Five entry points
 
 | Import | Contents |
 | --- | --- |
@@ -188,6 +251,7 @@ external and do not add to the Agent's own request usage accounting. The low-lev
 | `agent-core/openai` | OpenAI adapter (on the official SDK), wire mapping |
 | `agent-core/faux` | A scripted client for tests |
 | `agent-core/conformance` | `runConformance`, for people writing adapters |
+| `agent-core/tools` | Optional file-reading tool factories and their option/argument types |
 
 The split exists so that importing the loop does not load an HTTP adapter. Import
 the subpath you actually use.
@@ -225,6 +289,46 @@ sees a string; your UI sees structured data.
 ```ts
 return jsonResult({ rows: 12, took: "40ms" }); // content: pretty JSON, details: the object
 ```
+
+## Built-in file readers
+
+```ts
+import { createReadFileTool, createReadImageTool } from "agent-core/tools";
+
+const agent = new Agent({
+  client,
+  model,
+  tools: [
+    createReadFileTool(),
+    createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
+  ],
+});
+```
+
+The factories return ordinary `ToolDefinition<ReadPathArgs>` values; the shared
+argument shape is `{ path: string }`. Both reject relative paths, including
+Windows drive-relative and root-only paths. There is no working-directory fallback.
+
+- `createReadFileTool()` defaults to the name `read_file` and returns UTF-8 text
+  via `textResult()`. Before decoding it rejects NUL bytes, dense non-text control
+  bytes, recognizable PDF/GIF/WebP/ZIP signatures and invalid UTF-8. Binary
+  detection is heuristic, not an exhaustive file-format classifier; extensions
+  do not decide whether a file is text. Empty files, UTF-8 BOMs, Unicode and common
+  terminal escape sequences are preserved. Other encodings must be converted
+  externally; no lossy decoding or automatic encoding fallback is performed.
+- `createReadImageTool()` defaults to `read_image` and returns an image block with
+  its MIME type and raw Base64 data. PNG, JPEG, GIF and WebP are recognized from
+  file signatures; this does not perform full image decoding or validation.
+
+Both accept `ReadToolOptions`: optional `name` and `timeoutMs`. Names and timeouts
+use the same definition validation as custom tools. Each invocation creates an
+independent definition and schema. Files are read only when the tool executes,
+and its cancellation signal reaches the underlying read. Errors become ordinary
+tool failures through the existing executor; permission decisions still belong
+in `onToolCall`. The tools are never automatically registered and are not exported
+from the core entry point. Importing `agent-core` does not load their modules.
+
+The single example uses these factories; it no longer reimplements the readers.
 
 ## Tools
 

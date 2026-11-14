@@ -29,6 +29,7 @@ export type {
 } from "./runtime/events.js";
 export type {
   AssistantMessage,
+  Base64ImageBlock,
   ContentBlock,
   ImageBlock,
   Message,
@@ -42,6 +43,7 @@ export type {
   ToolResult,
   ToolResultMessage,
   UserMessage,
+  UrlImageBlock,
 } from "./core/messages.js";
 export type { ErrorKind, NormalizedError } from "./core/errors.js";
 export type { Usage } from "./core/usage.js";

@@ -8,6 +8,8 @@ import { Agent, run, defineTool, textResult, type AgentInput, type AgentOptions,
 import * as core from "agent-core";
 import { fauxClient } from "agent-core/faux";
 import { runConformance, type ConformanceResult } from "agent-core/conformance";
+import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-core";
+import { createReadFileTool, createReadImageTool, type ReadPathArgs, type ReadToolOptions } from "agent-core/tools";
 
 const tool = defineTool<{ path: string }>({
   name: "read",
@@ -65,9 +67,34 @@ export async function converse(input: AgentInput): Promise<RunResult> {
   return agent.run();
 }
 
+export async function inspectImages(client: LLMClient, model: string, base64: string): Promise<RunResult> {
+  const inline: Base64ImageBlock = { type: "image", mimeType: "image/png", data: base64 };
+  const remote: UrlImageBlock = { type: "image", url: "https://images.example.test/photo.jpg" };
+  const images: ImageBlock[] = [inline, remote];
+  // @ts-expect-error a URL image cannot also carry Base64 data
+  const invalid: ImageBlock = { ...inline, url: remote.url };
+  void invalid;
+  return new Agent({ client, model }).run([{ type: "text", text: "Compare." }, ...images]);
+}
+
 // The core entry point must not carry an adapter.
 // @ts-expect-error openaiClient belongs to agent-core/openai
 core.openaiClient;
+
+// Built-ins belong to the optional tools entry point.
+// @ts-expect-error core-only consumers do not load built-in file tools
+core.createReadFileTool;
+
+export function builtinReaders() {
+  const options: ReadToolOptions = { name: "open_text", timeoutMs: 1000 };
+  const text = createReadFileTool(options);
+  const image = createReadImageTool();
+  const args: ReadPathArgs = { path: "/absolute/file.txt" };
+  const execute = () => text.execute(args, { callId: "test", turn: 1 });
+  // @ts-expect-error built-in tools retain their typed path argument
+  const invalid = () => image.execute({ path: 123 }, { callId: "test", turn: 1 });
+  return { text, image, execute, invalid };
+}
 
 // A tool's arguments are typed by the definition, not by `unknown`.
 // @ts-expect-error wrong argument shape

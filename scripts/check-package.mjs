@@ -98,6 +98,8 @@ step("inspecting the tarball contents", () => {
     "package/dist/openai.d.ts",
     "package/dist/faux.js",
     "package/dist/conformance.js",
+    "package/dist/tools.js",
+    "package/dist/tools.d.ts",
   ];
   for (const file of required) {
     if (!listing.includes(file)) failures.push(`the tarball is missing ${file}`);
@@ -137,7 +139,7 @@ step("installing into a fresh project", () => {
 const fixtures = join(root, "scripts/consumer");
 cpSync(fixtures, consumer, { recursive: true });
 
-for (const script of ["use-core.mjs", "use-openai.mjs", "third-party-adapter.mjs"]) {
+for (const script of ["use-core.mjs", "use-openai.mjs", "use-tools.mjs", "third-party-adapter.mjs"]) {
   step(`running ${script}`, () => {
     const output = shell(process.execPath, [join(consumer, script)], { cwd: consumer });
     // The fixtures print their own progress lines; surface them.
@@ -203,7 +205,7 @@ step("type-checking a TypeScript consumer", () => {
 // 7. The core entry point must not load an adapter
 // ---------------------------------------------------------------------------
 
-step("checking that the core entry point loads no adapter and no SDK", () => {
+step("checking that the core entry point loads no adapter, SDK or built-in tools", () => {
   // Poison the adapter files *and* the vendor SDK. If importing the core pulls
   // any of them in, the import throws and the failure names itself.
   //
@@ -216,6 +218,9 @@ step("checking that the core entry point loads no adapter and no SDK", () => {
     join(dist, "openai.js"),
     join(dist, "providers/openai/index.js"),
     join(dist, "providers/faux/index.js"),
+    join(dist, "tools.js"),
+    join(dist, "builtins/read-file.js"),
+    join(dist, "builtins/read-image.js"),
     join(consumer, "node_modules/openai/index.js"),
     join(consumer, "node_modules/openai/index.mjs"),
   ];
@@ -229,7 +234,7 @@ step("checking that the core entry point loads no adapter and no SDK", () => {
       continue; // Not every variant of the SDK entry file exists.
     }
     originals.set(path, original);
-    writeFileSync(path, 'throw new Error("a provider dependency was loaded by a core-only import");\n');
+    writeFileSync(path, 'throw new Error("an optional dependency was loaded by a core-only import");\n');
   }
 
   try {
@@ -240,14 +245,14 @@ step("checking that the core entry point loads no adapter and no SDK", () => {
         "-e",
         'const core = await import("agent-core");' +
           'if ("openaiClient" in core) { console.error("core exports openaiClient"); process.exit(1); }' +
-          `console.log("core imported with providers poisoned, VERSION " + core.VERSION);`,
+          `console.log("core imported with optional modules poisoned, VERSION " + core.VERSION);`,
       ],
       { cwd: consumer },
     );
     return output.trim();
   } catch (error) {
     failures.push(
-      `importing agent-core loaded a provider dependency: ${String(error.stderr ?? error).trim().split("\n")[0]}`,
+      `importing agent-core loaded an optional dependency: ${String(error.stderr ?? error).trim().split("\n")[0]}`,
     );
     return "";
   } finally {

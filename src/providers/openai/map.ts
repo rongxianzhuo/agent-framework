@@ -24,7 +24,7 @@
  *   counterpart; the model then sees the tool's error result and retries.
  */
 
-import type { Message, TextBlock, ThinkingBlock } from "../../core/messages.js";
+import type { ContentBlock, Message, TextBlock, ThinkingBlock } from "../../core/messages.js";
 import type { ToolSpec } from "../../core/client.js";
 
 // ---------------------------------------------------------------------------
@@ -84,7 +84,26 @@ export function toOpenAIMessages(
   messages: readonly Message[],
   options: ToOpenAIMessagesOptions = {},
 ): OpenAIMessage[] {
-  return messages.map((message) => toOpenAIMessage(message, options.reasoningContent));
+  const mapped: OpenAIMessage[] = [];
+  let toolImages: OpenAIContentPart[] = [];
+  const flushImages = () => {
+    if (toolImages.length > 0) mapped.push({ role: "user", content: toolImages });
+    toolImages = [];
+  };
+  for (const message of messages) {
+    // Chat Completions tool messages accept text only. Attach images after the
+    // whole tool-result batch so parallel tool calls remain correctly paired.
+    if (message.role !== "toolResult") flushImages();
+    mapped.push(toOpenAIMessage(message, options.reasoningContent));
+    if (message.role === "toolResult" && message.content.some(block => block.type === "image")) {
+      toolImages.push(
+        { type: "text", text: `Output from tool ${JSON.stringify(message.toolName)} (call ${JSON.stringify(message.toolCallId)}):` },
+        ...contentParts(message.content),
+      );
+    }
+  }
+  flushImages();
+  return mapped;
 }
 
 function toOpenAIMessage(
@@ -101,17 +120,7 @@ function toOpenAIMessage(
 
       // Mixed content needs the part array; plain text stays a string, which is
       // the form every compatible gateway understands.
-      const parts: OpenAIContentPart[] = [];
-      for (const block of message.content) {
-        if (block.type === "text") parts.push({ type: "text", text: block.text });
-        else if (block.type === "image") {
-          parts.push({
-            type: "image_url",
-            image_url: { url: `data:${block.mimeType};base64,${block.data}` },
-          });
-        }
-      }
-      return { role: "user", content: parts };
+      return { role: "user", content: contentParts(message.content) };
     }
 
     case "assistant": {
@@ -148,9 +157,21 @@ function toOpenAIMessage(
       return {
         role: "tool",
         tool_call_id: message.toolCallId,
-        content: textOf(message.content),
+        content: textOf(message.content) || (message.content.some(block => block.type === "image")
+          ? "Image output is attached after the tool results." : ""),
       };
   }
+}
+
+function contentParts(content: readonly ContentBlock[]): OpenAIContentPart[] {
+  const parts: OpenAIContentPart[] = [];
+  for (const block of content) {
+    if (block.type === "text") parts.push({ type: "text", text: block.text });
+    else if (block.type === "image") {
+      parts.push({ type: "image_url", image_url: { url: block.url ?? `data:${block.mimeType};base64,${block.data}` } });
+    }
+  }
+  return parts;
 }
 
 /** Concatenate the thinking blocks of a message, for providers that take them. */

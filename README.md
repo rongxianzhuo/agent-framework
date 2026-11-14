@@ -34,7 +34,8 @@ argument.
   is passed to it, which is the one deliberate exception and is documented on that
   option.)
 - **No I/O of its own.** The core never touches the filesystem or the network;
-  it only calls the tool and client objects you hand it.
+  it only calls the tool and client objects you hand it. Optional built-in file
+  tools perform I/O only when explicitly registered and executed.
 - **Data in, data out.** `run` returns the full message list rather than hiding
   state internally. Hooks can explicitly replace that history. The optional
   `Agent` class retains the resulting list per instance;
@@ -46,7 +47,8 @@ to import a package, and only the adapters there do.
 
 ## Entry points
 
-Four, so that importing the core does not pull an adapter into your process:
+Five, so importing the core does not pull an adapter or built-in file tool into
+your process:
 
 | Import | What you get |
 | --- | --- |
@@ -54,6 +56,7 @@ Four, so that importing the core does not pull an adapter into your process:
 | `agent-core/openai` | The OpenAI Chat Completions adapter, plus the message mapping. Loads the `openai` SDK. |
 | `agent-core/faux` | A scripted `LLMClient` for tests. |
 | `agent-core/conformance` | `runConformance`, for anyone writing their own adapter. |
+| `agent-core/tools` | Optional `createReadFileTool` and `createReadImageTool` factories. |
 
 Requires Node 22 or later. TypeScript consumers need `@types/node`; the
 declarations use `AbortSignal`, `ReadableStream` and `fetch`, which is why the
@@ -123,6 +126,46 @@ await save(result.messages);
 
 `run` returns `{ messages, usage, turns, stopReason, error? }`. It does not throw
 for model or tool failures — those come back in the result.
+
+## Built-in file tools
+
+```ts
+import { createReadFileTool, createReadImageTool } from "agent-core/tools";
+
+const agent = new Agent({
+  client,
+  model,
+  tools: [createReadFileTool(), createReadImageTool({ timeoutMs: 10_000 })],
+});
+```
+
+Both tools require absolute paths. `read_file` returns UTF-8 text; `read_image`
+returns a Base64 image block for PNG, JPEG, GIF or WebP, identified by file
+signature. Each factory accepts optional `name` and `timeoutMs` settings and
+returns an ordinary `ToolDefinition`. Registration is explicit; permissions still
+use your existing `onToolCall` hook. Importing `agent-core` alone loads neither tool.
+
+`read_file` rejects obvious binary content and invalid UTF-8 rather than sending
+garbled text to the model. Detection uses contents, not filename extensions;
+other text encodings must be converted to UTF-8 first.
+
+## Image inputs
+
+Use a vision-capable model and pass text and images as user content blocks:
+
+```ts
+await agent.run([
+  { type: "text", text: "Compare these images." },
+  { type: "image", url: "https://example.com/photo.jpg" },
+  { type: "image", mimeType: "image/png", data: imageBase64 },
+]);
+```
+
+Base64 data has no `data:` prefix and requires a MIME type. URL images use a
+fully qualified HTTP(S) URL accessible to the model provider. Each image has one
+source. The OpenAI-compatible adapter sends URLs unchanged and wraps Base64 as
+a data URL. The framework does not download URL images. Images remain in history
+for followup questions and can be removed by your context compression policy.
 
 ## Context compression
 
@@ -221,9 +264,10 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/index.mjs`** — a multi-turn chat bot with a `read_file` tool,
-  pointed at DeepSeek. Try asking it to read and summarize a text file by its
-  absolute path. Relative paths are rejected. It prints tool
+- **`examples/index.mjs`** — a multi-turn chat bot with `read_file` and
+  `read_image` tools. Give an absolute path to a text file or a PNG/JPEG/GIF/WebP
+  image. Configure a vision-capable endpoint/model for image understanding;
+  the default endpoint is DeepSeek. Relative paths are rejected. It prints tool
   activity and the model's reasoning above each answer, which is
   what `thinking_delta` events are for. `Agent` carries the transcript between
   turns; terminal input and rendering stay in the example. Needs
@@ -234,21 +278,23 @@ including one you write yourself — and returns pass/fail data.
 - `src/core/` — messages, model client contracts, schema types, errors and usage.
 - `src/runtime/` — Agent, the run loop, events, hooks and transcript validation.
 - `src/tools/` — tool definitions, registry, execution, results and schema validation.
+- `src/builtins/` — optional filesystem tool implementations and shared path checks.
 - `src/providers/` — concrete adapters and dependency-free shared stream assembly.
 - `src/testing/` — the adapter conformance suite.
 
-Root entry files (`index.ts`, `openai.ts`, `faux.ts`, `conformance.ts`) define the
+Root entry files (`index.ts`, `openai.ts`, `faux.ts`, `conformance.ts`, `tools.ts`) define the
 public exports. Internal modules import their dependencies directly. Core modules
 depend only on core; tools depend on core; runtime depends on core and tools.
-Adapters depend on core and shared provider helpers. `npm run invariants` checks
-these boundaries and prevents the core entry point from loading an adapter or SDK.
+Adapters depend on core and shared provider helpers; built-ins depend on core and
+tool mechanisms. `npm run invariants` checks these boundaries and prevents the
+core entry point from loading adapters, SDKs or built-in file tools.
 
 ## Status
 
 Implemented: message model, JSON Schema subset validation, tools, Agent, the loop, the
-provider contract, hooks, a scripted provider, a conformance suite, and the
-OpenAI adapter.
+provider contract, hooks, context compression strategies, built-in file readers,
+a scripted provider, a conformance suite, and the OpenAI adapter.
 
 Not implemented, on purpose: any UI, session storage, permissions *policy* (the
 hook is the mechanism; deciding who may delete what is the caller's), retries
-above the adapter layer, context compaction, MCP, sub-agents.
+above the adapter layer, built-in context summarization, MCP, sub-agents.

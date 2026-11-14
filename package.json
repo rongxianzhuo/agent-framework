@@ -26,6 +26,10 @@
       "types": "./dist/conformance.d.ts",
       "import": "./dist/conformance.js"
     },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

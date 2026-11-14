@@ -223,7 +223,7 @@ function messageLength(message: LLMRequest["messages"][number]): number {
   let length = 0;
   for (const block of message.content) {
     if (block.type === "text" || block.type === "thinking") length += block.text.length;
-    else if (block.type === "image") length += block.data.length;
+    else if (block.type === "image") length += (block.url ?? block.data).length;
   }
   if (message.role === "assistant") {
     for (const call of message.toolCalls) length += JSON.stringify(call.args ?? {}).length;

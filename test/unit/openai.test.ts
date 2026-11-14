@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defineTool, run, textResult, type Message } from "../../src/index.js";
+import { Agent, defineTool, run, textResult, type ContentBlock, type Message } from "../../src/index.js";
 import { openaiClient } from "../../src/openai.js";
 
 // ---------------------------------------------------------------------------
@@ -135,6 +135,71 @@ function assistantIn(messages: readonly Message[]) {
 // ---------------------------------------------------------------------------
 
 describe("request", () => {
+  it("transports image tool output through the full tool loop without adding user messages to history", async () => {
+    const calls: Parameters<typeof fakeFetch>[1] = [];
+    const c = client([
+      { body: sse([
+        toolChunk(0, { id: "image1", name: "read_image", arguments: "{}" }),
+        toolChunk(1, { id: "text1", name: "read_file", arguments: "{}" }, "tool_calls"),
+      ]) },
+      { body: sse([textChunk("A picture.", "stop")]) },
+      { body: sse([textChunk("More detail.", "stop")]) },
+    ], calls);
+    const imageTool = defineTool({
+      name: "read_image", description: "Read an image.", parameters: { type: "object" },
+      execute: () => ({ content: [{ type: "image" as const, mimeType: "image/png", data: "AAAA" }] }),
+    });
+    const textTool = defineTool({
+      name: "read_file", description: "Read text.", parameters: { type: "object" },
+      execute: () => textResult("notes"),
+    });
+    const agent = new Agent({ client: c, model: "vision-test", tools: [imageTool, textTool] });
+    expect((await agent.run("Read and describe.")).stopReason).toBe("completed");
+    await agent.run("More detail?");
+    const second = (calls[1]!.body as { messages: Record<string, unknown>[] }).messages;
+    expect(second.map(m => m["role"])).toEqual(["user", "assistant", "tool", "tool", "user"]);
+    expect(second[2]).toMatchObject({ tool_call_id: "image1" });
+    expect(second[3]).toMatchObject({ tool_call_id: "text1", content: "notes" });
+    expect(second[4]).toMatchObject({ content: [
+      { type: "text", text: 'Output from tool "read_image" (call "image1"):' },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+    ] });
+    const third = (calls[2]!.body as { messages: Record<string, unknown>[] }).messages;
+    expect(third.map(m => m["role"])).toEqual(["user", "assistant", "tool", "tool", "user", "assistant", "user"]);
+    expect(agent.messages.filter(m => m.role === "user")).toHaveLength(2);
+    expect(agent.messages.find(m => m.role === "toolResult")?.content).toEqual([
+      { type: "image", mimeType: "image/png", data: "AAAA" },
+    ]);
+  });
+
+  it("sends both image sources through Agent and replays them on followup requests", async () => {
+    const calls: Parameters<typeof fakeFetch>[1] = [];
+    const c = client([
+      { body: sse([textChunk("Two pictures.", "stop")]) },
+      { body: sse([textChunk("They differ.", "stop")]) },
+    ], calls);
+    const content: ContentBlock[] = [
+      { type: "text", text: "Compare these pictures." },
+      { type: "image", url: "https://images.example.test/one.png" },
+      { type: "image", mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" },
+    ];
+    const agent = new Agent({ client: c, model: "vision-test" });
+    expect((await agent.run(content)).stopReason).toBe("completed");
+    expect((await agent.run("How do they differ?")).stopReason).toBe("completed");
+    const expected = [
+      { type: "text", text: "Compare these pictures." },
+      { type: "image_url", image_url: { url: "https://images.example.test/one.png" } },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/4AAQSkZJRg==" } },
+    ];
+    for (const call of calls) {
+      expect(call.url).toBe("https://example.test/v1/chat/completions");
+      expect((call.body as { messages: unknown[] }).messages[0]).toEqual({ role: "user", content: expected });
+    }
+    expect(calls).toHaveLength(2);
+    expect(agent.messages[0]?.content).toEqual(content);
+    expect((calls[1]!.body as { messages: unknown[] }).messages).toHaveLength(3);
+  });
+
   it("posts to /chat/completions with bearer auth and a streaming body", async () => {
     const calls: { url: string; body: unknown; headers: Record<string, string> }[] = [];
     const c = client([{ body: sse([textChunk("hi", "stop")]) }], calls);
