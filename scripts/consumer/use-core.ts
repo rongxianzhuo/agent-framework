@@ -9,7 +9,7 @@ import * as core from "agent-core";
 import { fauxClient } from "agent-core/faux";
 import { runConformance, type ConformanceResult } from "agent-core/conformance";
 import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-core";
-import { createReadFileTool, createReadImageTool, type ReadPathArgs, type ReadToolOptions } from "agent-core/tools";
+import { createReadFileTool, createReadImageTool, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions } from "agent-core/tools";
 
 const tool = defineTool<{ path: string }>({
   name: "read",
@@ -86,14 +86,17 @@ core.openaiClient;
 core.createReadFileTool;
 
 export function builtinReaders() {
-  const options: ReadToolOptions = { name: "open_text", timeoutMs: 1000 };
+  const common: ReadToolOptions = { name: "open_text", timeoutMs: 1000 };
+  const options: ReadFileToolOptions = { ...common, maxBytes: 1024 * 1024 };
   const text = createReadFileTool(options);
   const image = createReadImageTool();
   const args: ReadPathArgs = { path: "/absolute/file.txt" };
   const execute = () => text.execute(args, { callId: "test", turn: 1 });
   // @ts-expect-error built-in tools retain their typed path argument
   const invalid = () => image.execute({ path: 123 }, { callId: "test", turn: 1 });
-  return { text, image, execute, invalid };
+  // @ts-expect-error maxBytes is currently a text-reader option only
+  const invalidImage = () => createReadImageTool({ maxBytes: 1000 });
+  return { text, image, execute, invalid, invalidImage };
 }
 
 // A tool's arguments are typed by the definition, not by `unknown`.

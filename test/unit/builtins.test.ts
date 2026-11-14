@@ -29,6 +29,54 @@ describe("built-in file readers", () => {
     expect(result.content).toEqual([{ type: "text", text: "你好, agent!\nSecond line." }]);
   });
 
+  it.each([5, 6, 7])("enforces a %s-byte limit using UTF-8 bytes rather than characters", async maxBytes => {
+    const path = join(directory, `size-${maxBytes}.txt`);
+    await writeFile(path, "你好"); // Two characters, six UTF-8 bytes.
+    const tool = createReadFileTool({ maxBytes });
+    const result = await executeTool(tool, { id: "test", name: tool.name, args: { path } }, ctx);
+    if (maxBytes < 6) {
+      expect(result.message.isError).toBe(true);
+      expect(result.message.content[0]).toMatchObject({ text: expect.stringContaining("maximum size of 5 bytes") });
+    } else {
+      expect(result.message.content).toEqual([{ type: "text", text: "你好" }]);
+    }
+  });
+
+  it("allows only empty files with a zero-byte limit", async () => {
+    const path = join(directory, "zero-limit.txt");
+    await writeFile(path, "");
+    const tool = createReadFileTool({ maxBytes: 0 });
+    expect((await tool.execute({ path }, ctx)).content).toEqual([{ type: "text", text: "" }]);
+    await writeFile(path, "a");
+    await expect(tool.execute({ path }, ctx)).rejects.toThrow("maximum size of 0 bytes");
+  });
+
+  it("reads multiple bounded chunks and permits a very large configured limit", async () => {
+    const path = join(directory, "chunks.txt");
+    const text = "a".repeat(70_000);
+    await writeFile(path, text);
+    expect((await createReadFileTool({ maxBytes: 70_000 }).execute({ path }, ctx)).content)
+      .toEqual([{ type: "text", text }]);
+    expect((await createReadFileTool({ maxBytes: Number.MAX_SAFE_INTEGER }).execute({ path }, ctx)).content)
+      .toEqual([{ type: "text", text }]);
+  });
+
+  it.each([-1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])("rejects invalid maxBytes %s", maxBytes => {
+    expect(() => createReadFileTool({ maxBytes })).toThrow("non-negative safe integer");
+  });
+
+  it("captures the developer limit and does not allow the model to override it", async () => {
+    const options = { maxBytes: 0 };
+    const tool = createReadFileTool(options);
+    options.maxBytes = 1000;
+    await expect(tool.execute({ path: join(directory, "text.txt") }, ctx)).rejects.toThrow("maximum size of 0 bytes");
+    expect(Object.keys(tool.parameters.properties!)).toEqual(["path"]);
+    const result = await executeTool(tool, {
+      id: "test", name: tool.name, args: { path: join(directory, "text.txt"), maxBytes: 1000 },
+    }, ctx);
+    expect(result.error?.kind).toBe("invalidToolCall");
+  });
+
   it.each([
     ["empty", ""],
     ["unicode", "中文 😀 café\n"],

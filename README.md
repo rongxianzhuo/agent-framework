@@ -135,7 +135,10 @@ import { createReadFileTool, createReadImageTool } from "agent-core/tools";
 const agent = new Agent({
   client,
   model,
-  tools: [createReadFileTool(), createReadImageTool({ timeoutMs: 10_000 })],
+  tools: [
+    createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
+    createReadImageTool({ timeoutMs: 10_000 }),
+  ],
 });
 ```
 
@@ -148,6 +151,11 @@ use your existing `onToolCall` hook. Importing `agent-core` alone loads neither 
 `read_file` rejects obvious binary content and invalid UTF-8 rather than sending
 garbled text to the model. Detection uses contents, not filename extensions;
 other text encodings must be converted to UTF-8 first.
+
+`read_file` also accepts `maxBytes`: a non-negative safe integer specifying the
+maximum file size in bytes. Omit it for no limit; zero allows only empty files.
+Files exactly at the limit are accepted. Larger files fail without returning
+partial text. Reads are bounded even if a file grows after its size is checked.
 
 ## Image inputs
 

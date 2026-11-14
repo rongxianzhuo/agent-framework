@@ -299,7 +299,7 @@ const agent = new Agent({
   client,
   model,
   tools: [
-    createReadFileTool(),
+    createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
     createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
   ],
 });
@@ -320,7 +320,17 @@ Windows drive-relative and root-only paths. There is no working-directory fallba
   its MIME type and raw Base64 data. PNG, JPEG, GIF and WebP are recognized from
   file signatures; this does not perform full image decoding or validation.
 
-Both accept `ReadToolOptions`: optional `name` and `timeoutMs`. Names and timeouts
+Both accept `ReadToolOptions`: optional `name` and `timeoutMs`. The text reader
+uses the extended `ReadFileToolOptions`, which additionally accepts `maxBytes`.
+This is developer configuration, not a model-provided tool argument. It must be
+a non-negative safe integer, measured in bytes rather than Unicode characters.
+Omitting it leaves reads unlimited; zero permits only empty files. Exactly the
+limit is accepted, while an oversized file returns a tool error without partial
+content. The reader checks the size on an open handle, then reads that same file
+in bounded chunks, at most `maxBytes + 1` bytes, so growth after the check cannot
+cause an unbounded read. Handles are closed on success, failure and cancellation.
+
+Names and timeouts
 use the same definition validation as custom tools. Each invocation creates an
 independent definition and schema. Files are read only when the tool executes,
 and its cancellation signal reaches the underlying read. Errors become ordinary

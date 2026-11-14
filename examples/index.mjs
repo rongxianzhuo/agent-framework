@@ -52,7 +52,7 @@ const showThinking = true;
 const agent = new Agent({
   client,
   model,
-  tools: [createReadFileTool(), createReadImageTool()],
+  tools: [createReadFileTool({ maxBytes: 16 * 1024 }), createReadImageTool()],
   reasoningEffort,
   system: "You are a helpful assistant. Keep answers short. Use read_file for text files and read_image for images; do not guess their contents. Both tools require an absolute path. If the user has not provided one, ask for it rather than guessing a path.",
 });

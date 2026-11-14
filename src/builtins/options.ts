@@ -6,6 +6,12 @@ export interface ReadToolOptions {
   timeoutMs?: number;
 }
 
+/** Text-reader configuration, controlled by the developer rather than the model. */
+export interface ReadFileToolOptions extends ReadToolOptions {
+  /** Maximum file size in bytes. Omit for no limit; zero allows only empty files. */
+  maxBytes?: number;
+}
+
 /** Both readers require a fully qualified absolute file path. */
 export interface ReadPathArgs {
   path: string;
