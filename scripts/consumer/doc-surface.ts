@@ -14,6 +14,7 @@ import {
   jsonResult,
   MessageAccumulator,
   type Message,
+  type BeforeRequestUpdate,
   type RunHooks,
   type LLMClient,
   type LLMRequest,
@@ -70,7 +71,16 @@ function trimHistory(messages: readonly Message[]): Message[] {
 }
 
 const hooks: RunHooks = {
-  onBeforeRequest: ({ request }) => ({ ...request, messages: trimHistory(request.messages) }),
+  onBeforeRequest: [
+    ({ request }) => ({ ...request, temperature: 0.2 }),
+    ({ request }) => {
+      const update: BeforeRequestUpdate = {
+        request: { ...request, messages: trimHistory(request.messages) },
+        replaceHistory: true,
+      };
+      return update;
+    },
+  ],
 
   onToolCall: async ({ call }) => {
     if (call.name === "read_file") {

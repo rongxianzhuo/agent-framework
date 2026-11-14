@@ -76,7 +76,9 @@ const upper = result.messages.some(
 );
 if (!upper) failures.push("onToolResult did not rewrite the tool result");
 
-const conversationClient = fauxClient({ turns: [{ text: "Hello Alex." }, { text: "Alex." }] });
+const conversationClient = fauxClient({ turns: [
+  { text: "Hello Alex." }, { text: "Alex." }, { text: "Compressed." }, { text: "Continued." },
+] });
 const agent = new Agent({ client: conversationClient, model: "demo", system: "Be brief." });
 await agent.run("My name is Alex.");
 await agent.run("What is my name?");
@@ -85,6 +87,14 @@ const saved = agent.messages;
 agent.reset();
 agent.replaceMessages(saved);
 if (agent.messages.length !== 5) failures.push("Agent did not restore the conversation");
+
+await agent.run("compress", { hooks: { onBeforeRequest: ({ request }) => ({
+  request: { ...request, messages: [{ role: "user", content: [{ type: "text", text: "summary" }] }] },
+  replaceHistory: true,
+}) } });
+await agent.run("continue");
+if (conversationClient.requests[3]?.messages.length !== 3) failures.push("Agent did not retain compressed history");
+if (agent.messages[0]?.content[0]?.text !== "summary") failures.push("Permanent replacement was not saved");
 
 export const problems = failures;
 if (failures.length > 0) {

@@ -184,3 +184,14 @@ export type StopReason =
  * keeps new effort levels working without a release here.
  */
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+
+/** Internal message snapshot; opaque application details retain their ownership. */
+export function copyMessages(messages: readonly Message[]): Message[] {
+  return messages.map(message => {
+    if (message.role !== "toolResult") return structuredClone(message);
+    const { details, ...data } = message;
+    const copy: ToolResultMessage = structuredClone(data);
+    if ("details" in message) copy.details = details;
+    return copy;
+  });
+}

@@ -83,6 +83,8 @@ export {
   resolveHooks,
   type BeforeRequestContext,
   type BeforeRequestHook,
+  type BeforeRequestResult,
+  type BeforeRequestUpdate,
   type RunHooks,
   type ToolCallContext,
   type ToolCallDecision,

@@ -36,7 +36,7 @@ import { describeTranscriptProblems, findTranscriptProblems } from "./transcript
 import { executeTool } from "../tools/execute.js";
 import { toResultMessage } from "../tools/results.js";
 import type { AgentEvent, RunStopReason } from "./events.js";
-import type { AssistantMessage, Message, ReasoningEffort } from "../core/messages.js";
+import { copyMessages, type AssistantMessage, type Message, type ReasoningEffort } from "../core/messages.js";
 
 /** Options for one `run`. */
 export interface RunOptions {
@@ -102,8 +102,8 @@ export interface RunOptions {
 /** The outcome of one run. */
 export interface RunResult {
   /**
-   * The full transcript: the input messages followed by everything this run
-   * appended. Persist this; pass it back in to continue the conversation.
+   * The current transcript, including any explicit history replacements and
+   * new messages. Persist this; pass it back in to continue the conversation.
    */
   messages: Message[];
   /** Cumulative usage over every model call in the run. */
@@ -146,7 +146,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const hooks = resolveHooks(hookOptions);
 
   // Copy, so the caller's array is untouched. Everything below appends to this.
-  const messages: Message[] = [...options.messages];
+  let messages: Message[] = [...options.messages];
   const specs = toToolSpec(tools);
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
@@ -178,16 +178,22 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
     // A snapshot, not the live array: an adapter may keep the request for
     // logging, and must not see it grow as the run continues.
-    let request: LLMRequest = { model, messages: [...messages], tools: specs };
+    let request: LLMRequest = { model, messages: copyMessages(messages), tools: specs };
     if (maxOutputTokens !== undefined) request.maxOutputTokens = maxOutputTokens;
     if (temperature !== undefined) request.temperature = temperature;
     if (reasoningEffort !== undefined) request.reasoningEffort = reasoningEffort;
     if (providerOptions !== undefined) request.providerOptions = providerOptions;
 
     // --- let the caller rewrite the request --------------------------------
+    let replacementHistory: Message[] | undefined;
     try {
-      request = await hooks.beforeRequest({ turn: turns, request, signal });
+      request = await hooks.beforeRequest({ turn: turns, request, signal }, history => {
+        replacementHistory = history;
+      });
     } catch (thrown) {
+      if (signal?.aborted) {
+        return finish("aborted", abortedError("The run was cancelled before the model request."));
+      }
       if (thrown instanceof HookError) return finish("error", thrown.toNormalized());
       throw thrown;
     }
@@ -196,13 +202,22 @@ export async function run(options: RunOptions): Promise<RunResult> {
     // that wrong is to keep a tool call without its result. Catch it here, where
     // the offending message can be named, instead of letting the provider reject
     // the request with a message about roles.
-    const problems = findTranscriptProblems(request.messages);
+    if (signal?.aborted) {
+      return finish("aborted", abortedError("The run was cancelled before the model request."));
+    }
+    const problems = [
+      ...findTranscriptProblems(request.messages),
+      ...(replacementHistory === undefined ? [] : findTranscriptProblems(replacementHistory)),
+    ];
     if (problems.length > 0) {
       const error = normalizeThrown(new Error(describeTranscriptProblems(problems)), client.name);
       error.kind = "invalidRequest";
       error.retryable = false;
       return finish("error", error);
     }
+
+    // Commit only after every hook succeeded and both transcripts are valid.
+    if (replacementHistory !== undefined) messages = replacementHistory;
 
     // --- ask the model -----------------------------------------------------
     let assistant: AssistantMessage | undefined;

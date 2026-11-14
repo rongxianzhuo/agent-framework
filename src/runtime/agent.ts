@@ -1,4 +1,4 @@
-import type { ContentBlock, Message, ToolResultMessage } from "../core/messages.js";
+import { copyMessages, type ContentBlock, type Message } from "../core/messages.js";
 import { run, type RunOptions, type RunResult } from "./run.js";
 import { describeTranscriptProblems, findTranscriptProblems } from "./transcript.js";
 
@@ -86,16 +86,4 @@ export class Agent {
       throw new Error(`${describeTranscriptProblems(problems)} Supply the missing results with replaceMessages() or reset() before continuing.`);
     }
   }
-}
-
-function copyMessages(messages: readonly Message[]): Message[] {
-  return messages.map(message => {
-    if (message.role !== "toolResult") return structuredClone(message);
-    // details is deliberately unknown: it may hold non-cloneable application
-    // objects, but it never reaches the model or influences the loop.
-    const { details, ...data } = message;
-    const copy: ToolResultMessage = structuredClone(data);
-    if ("details" in message) copy.details = details;
-    return copy;
-  });
 }

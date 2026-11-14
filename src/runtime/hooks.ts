@@ -35,7 +35,7 @@ import { toResultMessage } from "../tools/results.js";
 import type { LLMRequest } from "../core/client.js";
 import type { ToolDefinition } from "../tools/definition.js";
 import type { ToolExecution } from "../tools/execute.js";
-import type { ToolCall, ToolResult } from "../core/messages.js";
+import { copyMessages, type Message, type ToolCall, type ToolResult } from "../core/messages.js";
 
 // ---------------------------------------------------------------------------
 // Hook signatures
@@ -46,15 +46,28 @@ export interface BeforeRequestContext {
   turn: number;
   /**
    * The request the loop is about to send: a snapshot of the transcript, the
-   * tool specs, and the sampling parameters. Safe to keep or mutate; the loop
-   * will not touch it again.
+   * tool specs, and the sampling parameters. Message data is detached from the
+   * stored history; opaque tool-result details remain caller-owned references.
    */
   request: LLMRequest;
   signal: AbortSignal | undefined;
 }
 
 /**
- * Return a replacement request, or nothing to leave it unchanged.
+ * Explicit request replacement. Only messages are persisted; model, tools and
+ * generation settings still apply to this request only.
+ */
+export interface BeforeRequestUpdate {
+  request: LLMRequest;
+  /** Replace stored history with these messages after the full hook chain validates. */
+  replaceHistory?: boolean;
+}
+
+export type BeforeRequestResult = LLMRequest | BeforeRequestUpdate | void;
+
+/**
+ * Return a request (temporary), { request, replaceHistory: true } (persistent
+ * messages), or nothing. In-place message edits are temporary by default too.
  *
  * Returning a partial object is not supported on purpose: the request is a
  * small, flat structure, and `{ ...request, messages: trimmed }` says exactly
@@ -62,7 +75,7 @@ export interface BeforeRequestContext {
  */
 export type BeforeRequestHook = (
   context: BeforeRequestContext,
-) => LLMRequest | void | undefined | Promise<LLMRequest | void | undefined>;
+) => BeforeRequestResult | Promise<BeforeRequestResult>;
 
 export interface ToolCallContext {
   turn: number;
@@ -153,7 +166,10 @@ export class HookError extends Error {
 /** Hooks normalised to arrays, with the chaining rules applied. */
 export interface ResolvedHooks {
   /** Run `onBeforeRequest` in order and return the request to send. */
-  beforeRequest(context: BeforeRequestContext): Promise<LLMRequest>;
+  beforeRequest(
+    context: BeforeRequestContext,
+    onReplaceHistory?: (messages: Message[]) => void,
+  ): Promise<LLMRequest>;
   /** Run `onToolCall` until one returns a decision. */
   toolCall(context: ToolCallContext): Promise<ToolCallDecision>;
   /** Run `onToolResult` in order. Returns the execution with the result applied. */
@@ -178,16 +194,24 @@ export function resolveHooks(hooks: RunHooks | undefined): ResolvedHooks {
   const after = toArray(hooks.onToolResult);
 
   return {
-    async beforeRequest(context) {
+    async beforeRequest(context, onReplaceHistory) {
       let request = context.request;
       for (const hook of before) {
-        let next: LLMRequest | void | undefined;
         try {
-          next = await hook({ ...context, request });
+          const next = await hook({ ...context, request });
+          if (next === undefined) continue;
+          if ("request" in next) {
+            request = next.request;
+            if (next.replaceHistory === true) {
+              // Capture here so later temporary hooks cannot change this snapshot.
+              onReplaceHistory?.(copyMessages(request.messages));
+            }
+          } else {
+            request = next;
+          }
         } catch (thrown) {
           throw new HookError("onBeforeRequest", thrown);
         }
-        if (next !== undefined) request = next;
       }
       return request;
     },

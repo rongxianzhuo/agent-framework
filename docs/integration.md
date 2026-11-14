@@ -315,8 +315,10 @@ Three places where the core hands control back to you. All optional.
 
 ### `onBeforeRequest` — rewrite the request
 
-Runs immediately before each model call. Return a whole `LLMRequest`, or nothing
-to leave it alone.
+Runs immediately before each model call, including calls after tool execution.
+Return a whole `LLMRequest` for temporary changes, or nothing to keep the current
+request. Message objects are copied, so in-place edits also stay temporary;
+opaque tool-result `details` remain caller-owned references.
 
 ```ts
 hooks: {
@@ -327,10 +329,45 @@ hooks: {
 }
 ```
 
+The example above trims only this request; the next turn starts from the stored
+history again. The explicit equivalent is
+`{ request: updatedRequest, replaceHistory: false }` (false is the default).
+
+For permanent compression, return `replaceHistory: true`:
+
+```ts
+hooks: {
+  onBeforeRequest: async ({ request, signal }) => {
+    if (!shouldCompress(request)) return;
+    const messages = await compressHistory(request.messages, signal);
+    return {
+      request: { ...request, messages },
+      replaceHistory: true,
+    };
+  },
+}
+```
+
+`shouldCompress` and `compressHistory` are application functions: the framework
+does not choose a threshold, estimate tokens or generate summaries. This works
+inside one `run()`, before each model request. Only `request.messages` replaces
+history; changes to model, tools or generation settings remain per-request.
+The replacement appears in `RunResult.messages`, `run_end`, and `Agent.messages`
+after execution. No archive of the original history is kept automatically.
+
+Hooks still chain in order. Each permanent replacement captures the messages
+at that point; later temporary edits affect only the outgoing request. The last
+permanent replacement wins, including any earlier edits it explicitly captures.
+The final request and stored replacement must both pass transcript validation.
+Nothing is committed if a hook throws, either transcript is invalid, or the run
+is cancelled before the commit. Once committed, compression is retained even
+if the following model request fails. An external history array is never replaced
+in place: low-level callers must use the returned `result.messages`.
+
 This is where context management lives: dropping old turns, injecting a reminder,
 swapping the model for a cheap one on later turns, or adding a
-`providerOptions` field. The core will not outsource its own judgment about how
-much history fits, because that differs per model and per caller.
+`providerOptions` field. How much history fits is left to the caller, because
+that differs per model and application.
 
 **Trim by whole exchanges.** An exchange begins at a user message:
 

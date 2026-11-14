@@ -36,7 +36,8 @@ argument.
 - **No I/O of its own.** The core never touches the filesystem or the network;
   it only calls the tool and client objects you hand it.
 - **Data in, data out.** `run` returns the full message list rather than hiding
-  state internally. The optional `Agent` class retains that list per instance;
+  state internally. Hooks can explicitly replace that history. The optional
+  `Agent` class retains the resulting list per instance;
   callers still own persistence and replay.
 - **Small surface.** Message types, tools, `run`, an `Agent` class, a few hooks.
 
@@ -162,6 +163,12 @@ Every hook is optional. `onBeforeRequest` and `onToolResult` chain, so a list of
 them composes; `onToolCall` short-circuits, because a guard that says no must not
 be overridden by a later hook that means to allow. A hook that throws ends the run
 with `kind: "hook"` — a guard that crashes is not a guard.
+
+`onBeforeRequest` returns a plain request for temporary changes. To permanently
+replace history, return `{ request: updatedRequest, replaceHistory: true }`.
+Only messages persist; model and generation settings remain per-request. The
+framework validates the replacement before committing it, and `Agent` retains
+the resulting history. Compression timing and strategy belong to the caller.
 
 `onToolCall` can also return `{ result }` to answer without running the tool,
 which is how caching and test stubs work.
