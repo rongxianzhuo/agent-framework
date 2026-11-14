@@ -9,7 +9,7 @@ import * as core from "agent-framework";
 import { fauxClient } from "agent-framework/faux";
 import { runConformance, type ConformanceResult } from "agent-framework/conformance";
 import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-framework";
-import { createReadFileTool, createReadImageTool, createWriteFileTool, type ReadFileArgs, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions, type WriteFileArgs, type WriteFileToolOptions } from "agent-framework/tools";
+import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool, type EditFileArgs, type EditFileToolOptions, type ReadFileArgs, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions, type WriteFileArgs, type WriteFileToolOptions } from "agent-framework/tools";
 
 const tool = defineTool<{ path: string }>({
   name: "read",
@@ -86,6 +86,18 @@ core.openaiClient;
 core.createReadFileTool;
 // @ts-expect-error writers also belong to the optional tools entry point
 core.createWriteFileTool;
+// @ts-expect-error editors belong to the optional tools entry point
+core.createEditFileTool;
+
+export function builtinEditor() {
+  const options: EditFileToolOptions = { name: "replace_text", timeoutMs: 1000 };
+  const editor = createEditFileTool(options);
+  const args: EditFileArgs = { file_path: "/absolute/file.txt", old_string: "old", new_string: "new", replease_all: true };
+  const execute = () => editor.execute(args, { callId: "edit", turn: 1 });
+  // @ts-expect-error file_path is required; path is not an alias
+  const invalid = () => editor.execute({ path: args.file_path, old_string: "old", new_string: "new" }, { callId: "edit", turn: 1 });
+  return { editor, execute, invalid };
+}
 
 export function builtinWriter() {
   const options: WriteFileToolOptions = { name: "save_text", timeoutMs: 1000 };

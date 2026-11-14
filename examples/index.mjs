@@ -23,7 +23,7 @@
 import { createInterface } from "node:readline";
 
 import { Agent } from "agent-framework";
-import { createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 import { openaiClient } from "agent-framework/openai";
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -52,7 +52,7 @@ const showThinking = true;
 const agent = new Agent({
   client,
   model,
-  tools: [createReadFileTool({ maxBytes: 16 * 1024 }), createReadImageTool(), createWriteFileTool()],
+  tools: [createReadFileTool({ maxBytes: 16 * 1024 }), createReadImageTool(), createWriteFileTool(), createEditFileTool()],
   reasoningEffort,
   system: "You are a helpful assistant. Keep answers short. Use the available tools when needed and do not guess their results. Ask the user for missing information rather than making assumptions.",
 });

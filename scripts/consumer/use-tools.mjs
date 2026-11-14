@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Agent } from "agent-framework";
-import { createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 import { fauxClient } from "agent-framework/faux";
 
 const textPath = resolve("builtin-text.txt");
@@ -43,4 +43,10 @@ await writer.execute({ path: writePath, content: "one\r\ntwo\r\nthree" }, { call
 assert.deepEqual((await createReadFileTool().execute({ path: writePath, offset: 1, limit: 1 }, { callId: "range", turn: 1 })).content,
   [{ type: "text", text: "two\r\n" }]);
 await assert.rejects(createReadFileTool().execute({ path: writePath, offset: 1 }, { callId: "range", turn: 1 }), /provided together/);
+const editor = createEditFileTool({ name: "replace_text", timeoutMs: 1000 });
+await writer.execute({ path: writePath, content: "old old" }, { callId: "write", turn: 4 });
+await assert.rejects(editor.execute({ file_path: writePath, old_string: "old", new_string: "new" }, { callId: "edit", turn: 1 }), /multiple locations/);
+assert.equal(await readFile(writePath, "utf8"), "old old");
+await editor.execute({ file_path: writePath, old_string: "old", new_string: "new", replease_all: true }, { callId: "edit", turn: 2 });
+assert.equal(await readFile(writePath, "utf8"), "new new");
 console.log("  built-in tool consumer: passed");

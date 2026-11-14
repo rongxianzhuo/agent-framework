@@ -222,6 +222,7 @@ step("checking that the core entry point loads no adapter, SDK or built-in tools
     join(dist, "builtins/read-file.js"),
     join(dist, "builtins/read-image.js"),
     join(dist, "builtins/write-file.js"),
+    join(dist, "builtins/edit-file.js"),
     join(consumer, "node_modules/openai/index.js"),
     join(consumer, "node_modules/openai/index.mjs"),
   ];

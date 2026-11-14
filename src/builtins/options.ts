@@ -15,6 +15,18 @@ export interface ReadFileToolOptions extends ReadToolOptions {
 /** Writer factories accept the same optional name and timeout settings. */
 export type WriteFileToolOptions = ReadToolOptions;
 
+/** Editor factories accept the same optional name and timeout settings. */
+export type EditFileToolOptions = ReadToolOptions;
+
+/** Literal text replacement in an existing UTF-8 file. */
+export interface EditFileArgs {
+  file_path: string;
+  old_string: string;
+  new_string: string;
+  /** Replace all non-overlapping occurrences; defaults to false. */
+  replease_all?: boolean;
+}
+
 /** UTF-8 text to create or overwrite at an absolute path. */
 export interface WriteFileArgs {
   path: string;

@@ -5,7 +5,7 @@ who has a project and wants a model loop in it, not for someone who wants to
 understand this repository.
 
 If you would rather read code than prose, `examples/index.mjs` is a
-multi-turn chat bot with local `read_file`, `read_image` and `write_file` tools in one file, and its loop is the
+multi-turn chat bot with local reading, writing and editing tools in one file, and its loop is the
 shape every embedding agent starts from. It targets DeepSeek's endpoint and needs
 `OPENAI_API_KEY`. Run `npm run example`, then ask it to read a text file by its
 absolute path. For images, configure a vision-capable endpoint/model and ask it
@@ -294,7 +294,7 @@ return jsonResult({ rows: 12, took: "40ms" }); // content: pretty JSON, details:
 ## Built-in file tools
 
 ```ts
-import { createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
@@ -303,6 +303,7 @@ const agent = new Agent({
     createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
     createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
     createWriteFileTool(),
+    createEditFileTool(),
   ],
 });
 ```
@@ -311,7 +312,8 @@ The text reader returns `ToolDefinition<ReadFileArgs>` and the image reader
 returns `ToolDefinition<ReadPathArgs>`. Both accept `{ path: string }`; the text
 reader additionally supports the paired `offset` and `limit` fields. The writer returns
 `ToolDefinition<WriteFileArgs>` with `{ path: string, content: string }` arguments.
-All three reject relative paths, including
+The editor returns `ToolDefinition<EditFileArgs>` with the arguments shown below.
+All filesystem tools reject relative paths, including
 Windows drive-relative and root-only paths. There is no working-directory fallback.
 
 - `createReadFileTool()` defaults to the name `read_file` and returns UTF-8 text
@@ -330,9 +332,13 @@ Windows drive-relative and root-only paths. There is no working-directory fallba
   missing parents and write failures return normal tool errors. Success returns
   a text confirmation with the UTF-8 byte count and path. Writes are not atomic;
   cancellation or an I/O failure after writing starts may leave partial contents.
+- `createEditFileTool()` defaults to `edit_file`. It edits an existing UTF-8 file
+  by literal text replacement and returns a text confirmation with the replacement
+  count. Missing files, binary content and invalid UTF-8 are rejected before writing.
 
 Readers accept `ReadToolOptions` and the writer accepts `WriteFileToolOptions`:
-optional `name` and `timeoutMs`. The text reader
+optional `name` and `timeoutMs`. The editor accepts the same settings through
+`EditFileToolOptions`. The text reader
 uses the extended `ReadFileToolOptions`, which additionally accepts `maxBytes`.
 This is developer configuration, not a model-provided tool argument. It must be
 a non-negative safe integer, measured in bytes rather than Unicode characters.
@@ -361,6 +367,29 @@ create an extra line. Empty files and offsets beyond EOF return empty text.
 Selection happens after the existing full-file size, binary and UTF-8 checks;
 these parameters do not bypass `maxBytes` or implement streaming access to files
 larger than the configured limit.
+
+The editor's model-facing arguments use these exact names:
+
+```json
+{
+  "file_path": "/absolute/file.txt",
+  "old_string": "old text",
+  "new_string": "replacement text",
+  "replease_all": false
+}
+```
+
+`file_path`, `old_string` and `new_string` are required. `old_string` must be
+nonempty; `new_string` may be empty to delete text. Matching is exact and
+case-sensitive, including whitespace and newline characters; neither search nor
+replacement is interpreted as a regular expression or replacement template.
+With `replease_all` omitted or false, the old text must match at exactly one
+position. Multiple positions, including overlapping ones, return an error rather
+than replacing just the first. With `replease_all: true`, all non-overlapping
+matches are replaced left to right. No match is an error in either mode.
+These errors do not write the file. Untouched text, BOMs and line endings are
+preserved. Like the writer, editing is not atomic or protected by a file lock;
+concurrent external changes or failures after writing starts require caller handling.
 
 Names and timeouts use the same definition validation as custom tools. Each invocation creates an
 independent definition and schema. File I/O occurs only when the tool executes,
