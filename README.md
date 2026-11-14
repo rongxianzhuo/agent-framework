@@ -170,6 +170,20 @@ including one you write yourself — and returns pass/fail data.
   transcript is carried between turns, since the library keeps no state. Needs
   `OPENAI_API_KEY`, then `npm run example`.
 
+## Source layout
+
+- `src/core/` — messages, model client contracts, schema types, errors and usage.
+- `src/runtime/` — the run loop, events, hooks and transcript validation.
+- `src/tools/` — tool definitions, registry, execution, results and schema validation.
+- `src/providers/` — concrete adapters and dependency-free shared stream assembly.
+- `src/testing/` — the adapter conformance suite.
+
+Root entry files (`index.ts`, `openai.ts`, `faux.ts`, `conformance.ts`) define the
+public exports. Internal modules import their dependencies directly. Core modules
+depend only on core; tools depend on core; runtime depends on core and tools.
+Adapters depend on core and shared provider helpers. `npm run invariants` checks
+these boundaries and prevents the core entry point from loading an adapter or SDK.
+
 ## Status
 
 Implemented: message model, JSON Schema subset validation, tools, the loop, the

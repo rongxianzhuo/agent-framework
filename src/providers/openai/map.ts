@@ -24,8 +24,8 @@
  *   counterpart; the model then sees the tool's error result and retries.
  */
 
-import type { Message, TextBlock, ThinkingBlock } from "../../types.js";
-import type { ToolSpec } from "../../client.js";
+import type { Message, TextBlock, ThinkingBlock } from "../../core/messages.js";
+import type { ToolSpec } from "../../core/client.js";
 
 // ---------------------------------------------------------------------------
 // Outbound: core messages -> OpenAI request

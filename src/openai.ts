@@ -10,15 +10,11 @@
  * instead of writing it again.
  */
 
-export {
-  openaiClient,
-  type OpenAIAdapter,
-  type OpenAIAdapterOptions,
-} from "./providers/openai/index.js";
+export { openaiClient, type OpenAIAdapter, type OpenAIAdapterOptions } from "./providers/openai/index.js";
 
 // Re-exported because the adapter's options use it, so a consumer tuning effort
 // from the openai entry point can name the type without also importing the core.
-export type { ReasoningEffort } from "./types.js";
+export type { ReasoningEffort } from "./core/messages.js";
 
 export {
   mapFinishReason,

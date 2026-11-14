@@ -14,85 +14,70 @@
 // Data model
 export type {
   AgentEvent,
-  AssistantMessage,
   AssistantMessageEvent,
-  ContentBlock,
   ErrorEvent,
-  ErrorKind,
-  ImageBlock,
-  Message,
-  MessageRole,
-  NormalizedError,
-  ReasoningEffort,
   RunEndEvent,
   RunStartEvent,
   RunStopReason,
-  StopReason,
-  SystemMessage,
-  TextBlock,
   TextDeltaEvent,
-  ThinkingBlock,
   ThinkingDeltaEvent,
-  ToolCall,
   ToolEndEvent,
-  ToolResult,
-  ToolResultMessage,
   ToolStartEvent,
   ToolUpdateEvent,
   TurnEndEvent,
   TurnStartEvent,
-  Usage,
+} from "./runtime/events.js";
+export type {
+  AssistantMessage,
+  ContentBlock,
+  ImageBlock,
+  Message,
+  MessageRole,
+  ReasoningEffort,
+  StopReason,
+  SystemMessage,
+  TextBlock,
+  ThinkingBlock,
+  ToolCall,
+  ToolResult,
+  ToolResultMessage,
   UserMessage,
-} from "./types.js";
+} from "./core/messages.js";
+export type { ErrorKind, NormalizedError } from "./core/errors.js";
+export type { Usage } from "./core/usage.js";
 
 // Errors
-export { DEFAULT_RETRYABLE, toNormalizedError } from "./errors.js";
+export { DEFAULT_RETRYABLE, toNormalizedError } from "./core/errors.js";
 
 // Schema subset
-export {
-  InvalidSchemaError,
-  checkSchema,
-  validate,
-  type JSONSchema,
-  type JSONSchemaType,
-  type SchemaViolation,
-} from "./schema.js";
+export { InvalidSchemaError, checkSchema, validate, type SchemaViolation } from "./tools/schema.js";
+export { type JSONSchema, type JSONSchemaType } from "./core/schema.js";
 
 // Tools
-export {
-  ToolRegistry,
-  defineTool,
-  executeTool,
-  jsonResult,
-  textResult,
-  type ToolContext,
-  type ToolDefinition,
-  type ToolExecution,
-} from "./tools.js";
+export { ToolRegistry } from "./tools/registry.js";
+export { defineTool, type ToolContext, type ToolDefinition } from "./tools/definition.js";
+export { executeTool, type ToolExecution } from "./tools/execute.js";
+export { jsonResult, textResult } from "./tools/results.js";
 
 // Provider contract
+export { EMPTY_USAGE, addUsage } from "./core/usage.js";
+export { MessageAccumulator } from "./providers/shared/accumulator.js";
+export { isNormalizedError, normalizeThrown } from "./core/errors.js";
+export { toToolSpec } from "./tools/definition.js";
 export {
-  EMPTY_USAGE,
-  MessageAccumulator,
-  addUsage,
-  isNormalizedError,
-  normalizeThrown,
-  toToolSpec,
   type LLMClient,
   type LLMEvent,
   type LLMRequest,
   type LLMStreamOptions,
   type ToolSpec,
-} from "./client.js";
+} from "./core/client.js";
 
 // Loop
-export { run, type RunOptions, type RunResult } from "./loop.js";
+export { run, type RunOptions, type RunResult } from "./runtime/run.js";
 
 // Hooks: the caller's interception points in a run
 export {
   HookError,
-  describeTranscriptProblems,
-  findTranscriptProblems,
   hasHooks,
   resolveHooks,
   type BeforeRequestContext,
@@ -103,8 +88,12 @@ export {
   type ToolCallHook,
   type ToolResultContext,
   type ToolResultHook,
+} from "./runtime/hooks.js";
+export {
+  describeTranscriptProblems,
+  findTranscriptProblems,
   type TranscriptProblem,
-} from "./hooks.js";
+} from "./runtime/transcript.js";
 
 // Providers, the scripted client and the conformance suite are separate entry
 // points (`agent-core/openai`, `agent-core/faux`, `agent-core/conformance`).

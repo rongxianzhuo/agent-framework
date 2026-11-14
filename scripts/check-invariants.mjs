@@ -7,8 +7,8 @@
  * rots loudly instead of quietly.
  *
  *   1. The only runtime dependency is the `openai` SDK, used by one adapter.
- *   2. Only `src/providers/` may import outside Node builtins and its own files.
- *   3. Core modules never import a provider adapter.
+ *   2. Only concrete provider adapters may import external packages.
+ *   3. Modules respect the core, tools, runtime and provider boundaries.
  *   4. Every entry point lists its exports explicitly; no `export *`.
  *   5. No credential is committed.
  *   6. The core entry point does not reach a provider or the conformance suite.
@@ -55,28 +55,40 @@ for (const dep of deps) {
 
 // 2 and 3. Import discipline.
 const importRe = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
-const coreModules = new Set(["types", "errors", "events", "loop", "hooks", "tools", "schema", "client"]);
+const allowedLayers = {
+  core: new Set(["core"]),
+  tools: new Set(["core", "tools"]),
+  runtime: new Set(["core", "tools", "runtime"]),
+  "providers/shared": new Set(["core", "providers/shared"]),
+};
+
+function layerOf(path) {
+  const parts = path.replace(/^src\//, "").split("/");
+  return parts[0] === "providers" ? parts.slice(0, 2).join("/") : parts[0];
+}
 
 for (const file of srcFiles) {
   const rel = relative(root, file).replaceAll("\\", "/");
   const source = readFileSync(file, "utf8");
-  const isCore = coreModules.has(rel.replace(/^src\//, "").replace(/\.ts$/, ""));
+  const layer = layerOf(rel);
+  const isAdapter = rel.startsWith("src/providers/") && layer !== "providers/shared";
+  const allowed = allowedLayers[layer] ??
+    (isAdapter ? new Set(["core", "providers/shared", layer]) : undefined);
 
   for (const match of source.matchAll(importRe)) {
     const spec = match[1];
     if (spec.startsWith("node:")) continue;
     if (spec.startsWith("./") || spec.startsWith("../")) {
-      const target = resolve(dirname(file), spec);
-      if (isCore && target.includes("/providers/")) {
-        failures.push(`${rel} imports a provider (${spec}); core must stay provider-free`);
+      const target = relative(root, resolve(dirname(file), spec)).replaceAll("\\", "/");
+      if (allowed !== undefined && !allowed.has(layerOf(target))) {
+        failures.push(`${rel} imports ${spec}; ${layer} may only depend on ${[...allowed].join(", ")}`);
       }
       continue;
     }
-    // Only adapters may import a package. Everything else in src/ is core, and
-    // core importing a bare module would push that dependency onto every
-    // consumer of the loop.
-    if (!rel.startsWith("src/providers/")) {
-      failures.push(`${rel} imports a bare module ("${spec}"); only src/providers/ may do that`);
+    // Shared provider helpers are dependency-free and may be exported by the
+    // core entry point. Only concrete adapters may load an external SDK.
+    if (!isAdapter) {
+      failures.push(`${rel} imports a bare module ("${spec}"); only concrete provider adapters may do that`);
     } else if (!ALLOWED_DEPENDENCIES.has(spec.split("/")[0])) {
       failures.push(`${rel} imports "${spec}", which is neither a Node builtin nor the allowed SDK`);
     }
@@ -108,7 +120,7 @@ for (const name of ENTRY_POINTS) {
 // an embedding agent's process. Checked transitively through the relative import
 // graph rooted at src/index.ts, not just the file's own imports: a two-hop path
 // is exactly how this would slip back in.
-const CORE_FORBIDDEN = [/^src\/providers\//, /^src\/testing\//];
+const CORE_FORBIDDEN = [/^src\/providers\/(?!shared\/)/, /^src\/testing\//];
 const coreVisited = new Set();
 const coreQueue = [join(root, "src/index.ts")];
 

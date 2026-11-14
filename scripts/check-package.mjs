@@ -46,6 +46,11 @@ function step(label, run) {
 }
 
 function shell(command, args, options) {
+  // npm is a .cmd shim on Windows; execute its JavaScript CLI through Node.
+  if (command === "npm" && process.env["npm_execpath"] !== undefined) {
+    args = [process.env["npm_execpath"], ...args];
+    command = process.execPath;
+  }
   return execFileSync(command, args, { cwd: options.cwd, encoding: "utf8", stdio: "pipe" });
 }
 
@@ -79,7 +84,7 @@ if (tarball === undefined) {
 // ---------------------------------------------------------------------------
 
 step("inspecting the tarball contents", () => {
-  const listing = shell("tar", ["-tzf", tarball], { cwd: packDir }).trim().split("\n");
+  const listing = shell("tar", ["-tzf", tarball], { cwd: packDir }).trim().split(/\r?\n/);
 
   const required = [
     "package/package.json",

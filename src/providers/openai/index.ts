@@ -25,20 +25,19 @@
  */
 
 import OpenAI from "openai";
-import {
-  APIError,
-  APIConnectionError,
-  APIConnectionTimeoutError,
-  APIUserAbortError,
-} from "openai";
+import { APIError, APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from "openai";
 import type { ChatCompletionChunk } from "openai/resources/chat/completions";
-
-import { MessageAccumulator } from "../../client.js";
-import { toNormalizedError } from "../../errors.js";
-import type { LLMClient, LLMEvent, LLMRequest } from "../../client.js";
-import type { NormalizedError, ReasoningEffort, StopReason, Usage } from "../../types.js";
-import { mapFinishReason, toOpenAIMessages, toOpenAITools } from "./map.js";
-import type { ReasoningContentMode } from "./map.js";
+import { MessageAccumulator } from "../shared/accumulator.js";
+import { toNormalizedError, type NormalizedError } from "../../core/errors.js";
+import type { LLMClient, LLMEvent, LLMRequest } from "../../core/client.js";
+import type { ReasoningEffort, StopReason } from "../../core/messages.js";
+import type { Usage } from "../../core/usage.js";
+import {
+  mapFinishReason,
+  toOpenAIMessages,
+  toOpenAITools,
+  type ReasoningContentMode,
+} from "./map.js";
 
 export interface OpenAIAdapterOptions {
   /**

@@ -17,11 +17,12 @@
  * subset.
  */
 
-import { run } from "../loop.js";
-import { defineTool, textResult } from "../tools.js";
-import type { LLMClient } from "../client.js";
-import type { JSONSchema } from "../schema.js";
-import type { Message } from "../types.js";
+import { run } from "../runtime/run.js";
+import { defineTool } from "../tools/definition.js";
+import { textResult } from "../tools/results.js";
+import type { LLMClient } from "../core/client.js";
+import type { JSONSchema } from "../core/schema.js";
+import type { Message } from "../core/messages.js";
 
 export type ConformanceCheck =
   | "text"

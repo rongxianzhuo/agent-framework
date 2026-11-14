@@ -11,9 +11,11 @@
  * Embedding agents are expected to use it for their own tests.
  */
 
-import { toNormalizedError } from "../../errors.js";
-import { MessageAccumulator, type LLMClient, type LLMEvent, type LLMRequest } from "../../client.js";
-import type { StopReason, ToolCall, Usage } from "../../types.js";
+import { toNormalizedError } from "../../core/errors.js";
+import { MessageAccumulator } from "../shared/accumulator.js";
+import type { LLMClient, LLMEvent, LLMRequest } from "../../core/client.js";
+import type { StopReason, ToolCall } from "../../core/messages.js";
+import type { Usage } from "../../core/usage.js";
 
 /** What the faux model does on one turn. */
 export interface FauxTurn {

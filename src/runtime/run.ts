@@ -21,33 +21,22 @@
  * through `hooks.onToolCall`), and any notion of a sub-agent.
  */
 
-import {
-  EMPTY_USAGE,
-  addUsage,
-  normalizeThrown,
-  toToolSpec,
-  type LLMClient,
-  type LLMRequest,
-} from "./client.js";
+import { EMPTY_USAGE, addUsage, type Usage } from "../core/usage.js";
+import { normalizeThrown, type NormalizedError } from "../core/errors.js";
+import { toToolSpec, type ToolContext, type ToolDefinition } from "../tools/definition.js";
+import type { LLMClient, LLMRequest } from "../core/client.js";
 import {
   HookError,
   applyResultHooks,
   deniedExecution,
-  describeTranscriptProblems,
-  findTranscriptProblems,
   resolveHooks,
   type RunHooks,
 } from "./hooks.js";
-import { executeTool, toResultMessage, type ToolContext, type ToolDefinition } from "./tools.js";
-import type {
-  AgentEvent,
-  AssistantMessage,
-  Message,
-  NormalizedError,
-  ReasoningEffort,
-  RunStopReason,
-  Usage,
-} from "./types.js";
+import { describeTranscriptProblems, findTranscriptProblems } from "./transcript.js";
+import { executeTool } from "../tools/execute.js";
+import { toResultMessage } from "../tools/results.js";
+import type { AgentEvent, RunStopReason } from "./events.js";
+import type { AssistantMessage, Message, ReasoningEffort } from "../core/messages.js";
 
 /** Options for one `run`. */
 export interface RunOptions {
