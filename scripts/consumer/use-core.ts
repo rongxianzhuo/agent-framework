@@ -92,7 +92,7 @@ core.createEditFileTool;
 export function builtinEditor() {
   const options: EditFileToolOptions = { name: "replace_text", timeoutMs: 1000 };
   const editor = createEditFileTool(options);
-  const args: EditFileArgs = { file_path: "/absolute/file.txt", old_string: "old", new_string: "new", replease_all: true };
+  const args: EditFileArgs = { file_path: "/absolute/file.txt", old_string: "old", new_string: "new", replace_all: true };
   const execute = () => editor.execute(args, { callId: "edit", turn: 1 });
   // @ts-expect-error file_path is required; path is not an alias
   const invalid = () => editor.execute({ path: args.file_path, old_string: "old", new_string: "new" }, { callId: "edit", turn: 1 });

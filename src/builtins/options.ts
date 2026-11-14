@@ -24,7 +24,7 @@ export interface EditFileArgs {
   old_string: string;
   new_string: string;
   /** Replace all non-overlapping occurrences; defaults to false. */
-  replease_all?: boolean;
+  replace_all?: boolean;
 }
 
 /** UTF-8 text to create or overwrite at an absolute path. */

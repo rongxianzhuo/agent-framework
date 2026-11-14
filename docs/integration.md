@@ -375,7 +375,7 @@ The editor's model-facing arguments use these exact names:
   "file_path": "/absolute/file.txt",
   "old_string": "old text",
   "new_string": "replacement text",
-  "replease_all": false
+  "replace_all": false
 }
 ```
 
@@ -383,9 +383,9 @@ The editor's model-facing arguments use these exact names:
 nonempty; `new_string` may be empty to delete text. Matching is exact and
 case-sensitive, including whitespace and newline characters; neither search nor
 replacement is interpreted as a regular expression or replacement template.
-With `replease_all` omitted or false, the old text must match at exactly one
+With `replace_all` omitted or false, the old text must match at exactly one
 position. Multiple positions, including overlapping ones, return an error rather
-than replacing just the first. With `replease_all: true`, all non-overlapping
+than replacing just the first. With `replace_all: true`, all non-overlapping
 matches are replaced left to right. No match is an error in either mode.
 These errors do not write the file. Untouched text, BOMs and line endings are
 preserved. Like the writer, editing is not atomic or protected by a file lock;

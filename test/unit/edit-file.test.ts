@@ -26,13 +26,13 @@ describe("edit_file", () => {
     expect(result.content).toEqual([{ type: "text", text: `Replaced 1 occurrence in ${file_path}.` }]);
   });
 
-  it.each([undefined, false])("rejects multiple matches when replease_all is %s without modifying the file", async flag => {
+  it.each([undefined, false])("rejects multiple matches when replace_all is %s without modifying the file", async flag => {
     const file_path = join(directory, `ambiguous-${flag}.txt`);
     const original = "old / old / old";
     await writeFile(file_path, original);
     const tool = createEditFileTool();
     const result = await executeTool(tool, { id: "edit", name: tool.name, args: {
-      file_path, old_string: "old", new_string: "new", ...(flag === undefined ? {} : { replease_all: flag }),
+      file_path, old_string: "old", new_string: "new", ...(flag === undefined ? {} : { replace_all: flag }),
     } }, ctx);
     expect(result.message.isError).toBe(true);
     expect(result.message.content[0]).toMatchObject({ text: expect.stringContaining("multiple locations") });
@@ -43,7 +43,7 @@ describe("edit_file", () => {
     const file_path = join(directory, "all.txt");
     await writeFile(file_path, "a.* / a.* / a.*");
     const replacement = "$& $$ $` $' a.*";
-    const result = await createEditFileTool().execute({ file_path, old_string: "a.*", new_string: replacement, replease_all: true }, ctx);
+    const result = await createEditFileTool().execute({ file_path, old_string: "a.*", new_string: replacement, replace_all: true }, ctx);
     expect(await readFile(file_path, "utf8")).toBe([replacement, replacement, replacement].join(" / "));
     expect(result.content[0]).toMatchObject({ text: `Replaced 3 occurrences in ${file_path}.` });
   });
@@ -54,7 +54,7 @@ describe("edit_file", () => {
     const tool = createEditFileTool();
     await expect(tool.execute({ file_path, old_string: "aa", new_string: "b" }, ctx)).rejects.toThrow("multiple locations");
     expect(await readFile(file_path, "utf8")).toBe("aaa");
-    await tool.execute({ file_path, old_string: "aa", new_string: "b", replease_all: true }, ctx);
+    await tool.execute({ file_path, old_string: "aa", new_string: "b", replace_all: true }, ctx);
     expect(await readFile(file_path, "utf8")).toBe("ba");
   });
 
@@ -65,10 +65,10 @@ describe("edit_file", () => {
     expect(await readFile(file_path, "utf8")).toBe("start\r\nend");
   });
 
-  it.each([false, true])("rejects missing matches even with replease_all=%s", async replease_all => {
-    const file_path = join(directory, `missing-match-${replease_all}.txt`);
+  it.each([false, true])("rejects missing matches even with replace_all=%s", async replace_all => {
+    const file_path = join(directory, `missing-match-${replace_all}.txt`);
     await writeFile(file_path, "ABC\r\nunchanged");
-    await expect(createEditFileTool().execute({ file_path, old_string: "abc", new_string: "new", replease_all }, ctx))
+    await expect(createEditFileTool().execute({ file_path, old_string: "abc", new_string: "new", replace_all }, ctx))
       .rejects.toThrow("not found");
     expect(await readFile(file_path, "utf8")).toBe("ABC\r\nunchanged");
   });
@@ -78,8 +78,8 @@ describe("edit_file", () => {
     { old_string: "old" },
     { old_string: 123, new_string: "new" },
     { old_string: "old", new_string: null },
-    { old_string: "old", new_string: "new", replease_all: "true" },
-    { old_string: "old", new_string: "new", replace_all: true },
+    { old_string: "old", new_string: "new", replace_all: "true" },
+    { old_string: "old", new_string: "new", replease_all: true },
   ])("validates arguments before modifying files: %j", async args => {
     const file_path = join(directory, "schema.txt");
     await writeFile(file_path, "old");
@@ -126,7 +126,7 @@ describe("edit_file", () => {
   it("supports custom names and timeouts", () => {
     const tool = createEditFileTool({ name: "replace_text", timeoutMs: 1000 });
     expect([tool.name, tool.timeoutMs]).toEqual(["replace_text", 1000]);
-    expect(createEditFileTool().parameters.properties?.["replease_all"]?.default).toBe(false);
+    expect(createEditFileTool().parameters.properties?.["replace_all"]?.default).toBe(false);
   });
 
   it("lets an Agent recover from an ambiguous edit and read back the replacement", async () => {
@@ -135,7 +135,7 @@ describe("edit_file", () => {
     const agent = new Agent({
       client: fauxClient({ turns: [
         { toolCalls: [{ id: "bad", name: "edit_file", args: { file_path, old_string: "old", new_string: "new" } }] },
-        { toolCalls: [{ id: "good", name: "edit_file", args: { file_path, old_string: "old", new_string: "new", replease_all: true } }] },
+        { toolCalls: [{ id: "good", name: "edit_file", args: { file_path, old_string: "old", new_string: "new", replace_all: true } }] },
         { toolCalls: [{ id: "read", name: "read_file", args: { path: file_path } }] },
         { text: "Edited." },
       ] }), model: "test", tools: [createEditFileTool(), createReadFileTool()],

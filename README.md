@@ -154,8 +154,8 @@ use your existing `onToolCall` hook. Importing `agent-framework` alone loads non
 file. Empty content clears the file. Parent directories must already exist, and
 success returns a text confirmation with the number of bytes written.
 
-`edit_file` accepts `{ file_path, old_string, new_string, replease_all? }` to
-replace exact literal text in an existing UTF-8 file. `replease_all` defaults to
+`edit_file` accepts `{ file_path, old_string, new_string, replace_all? }` to
+replace exact literal text in an existing UTF-8 file. `replace_all` defaults to
 false: no match or multiple matching positions return an error without writing.
 Set it to true to replace all non-overlapping matches. `old_string` must be
 nonempty; an empty `new_string` deletes the matched text.

@@ -47,6 +47,6 @@ const editor = createEditFileTool({ name: "replace_text", timeoutMs: 1000 });
 await writer.execute({ path: writePath, content: "old old" }, { callId: "write", turn: 4 });
 await assert.rejects(editor.execute({ file_path: writePath, old_string: "old", new_string: "new" }, { callId: "edit", turn: 1 }), /multiple locations/);
 assert.equal(await readFile(writePath, "utf8"), "old old");
-await editor.execute({ file_path: writePath, old_string: "old", new_string: "new", replease_all: true }, { callId: "edit", turn: 2 });
+await editor.execute({ file_path: writePath, old_string: "old", new_string: "new", replace_all: true }, { callId: "edit", turn: 2 });
 assert.equal(await readFile(writePath, "utf8"), "new new");
 console.log("  built-in tool consumer: passed");
