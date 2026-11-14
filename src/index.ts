@@ -1,5 +1,5 @@
 /**
- * Public entry point for `agent-core`.
+ * Public entry point for `agent-framework`.
  *
  * Every export is listed explicitly. `export *` is banned (enforced by
  * `scripts/check-invariants.mjs`) so that the public surface can only grow by
@@ -102,7 +102,7 @@ export {
 } from "./runtime/transcript.js";
 
 // Providers, the scripted client and the conformance suite are separate entry
-// points (`agent-core/openai`, `agent-core/faux`, `agent-core/conformance`).
+// points (`agent-framework/openai`, `agent-framework/faux`, `agent-framework/conformance`).
 // Deliberately absent here: an embedding agent that only wants the loop should
 // not pull an HTTP adapter into its process because it imported `run`.
 

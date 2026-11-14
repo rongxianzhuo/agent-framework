@@ -3,7 +3,7 @@
  * Verify the package as a consumer receives it.
  *
  * Every other check in this repository looks at the source or the built output.
- * This one answers the question those cannot: after `npm install agent-core`,
+ * This one answers the question those cannot: after `npm install agent-framework`,
  * does it work? So it builds, packs a tarball, installs that tarball into a
  * throwaway project in the OS temp directory, and runs the fixtures in
  * `scripts/consumer/` against it by package name.
@@ -64,7 +64,7 @@ step("building", () => shell("npm", ["run", "build"], { cwd: root }));
 // 2. Pack
 // ---------------------------------------------------------------------------
 
-const packDir = mkdtempSync(join(tmpdir(), "agent-core-pack-"));
+const packDir = mkdtempSync(join(tmpdir(), "agent-framework-pack-"));
 let tarball;
 
 step("packing the tarball", () => {
@@ -119,7 +119,7 @@ step("inspecting the tarball contents", () => {
 // 4. Install into a throwaway consumer
 // ---------------------------------------------------------------------------
 
-const consumer = mkdtempSync(join(tmpdir(), "agent-core-consumer-"));
+const consumer = mkdtempSync(join(tmpdir(), "agent-framework-consumer-"));
 
 step("installing into a fresh project", () => {
   writeFileSync(
@@ -128,8 +128,8 @@ step("installing into a fresh project", () => {
   );
   shell("npm", ["install", "--silent", "--no-audit", "--no-fund", tarball], { cwd: consumer });
 
-  const installed = JSON.parse(readFileSync(join(consumer, "node_modules/agent-core/package.json"), "utf8"));
-  return `installed agent-core@${installed.version}, exports: ${Object.keys(installed.exports).join(", ")}`;
+  const installed = JSON.parse(readFileSync(join(consumer, "node_modules/agent-framework/package.json"), "utf8"));
+  return `installed agent-framework@${installed.version}, exports: ${Object.keys(installed.exports).join(", ")}`;
 });
 
 // ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ step("checking that the core entry point loads no adapter, SDK or built-in tools
   // interesting case: `npm install` puts `openai` on disk no matter what, so
   // "the core has no dependency" is no longer true. "The core does not load it"
   // still is, and that is what an embedding agent actually pays for at startup.
-  const dist = join(consumer, "node_modules/agent-core/dist");
+  const dist = join(consumer, "node_modules/agent-framework/dist");
   const poisoned = [
     join(dist, "openai.js"),
     join(dist, "providers/openai/index.js"),
@@ -243,7 +243,7 @@ step("checking that the core entry point loads no adapter, SDK or built-in tools
       [
         "--input-type=module",
         "-e",
-        'const core = await import("agent-core");' +
+        'const core = await import("agent-framework");' +
           'if ("openaiClient" in core) { console.error("core exports openaiClient"); process.exit(1); }' +
           `console.log("core imported with optional modules poisoned, VERSION " + core.VERSION);`,
       ],
@@ -252,7 +252,7 @@ step("checking that the core entry point loads no adapter, SDK or built-in tools
     return output.trim();
   } catch (error) {
     failures.push(
-      `importing agent-core loaded an optional dependency: ${String(error.stderr ?? error).trim().split("\n")[0]}`,
+      `importing agent-framework loaded an optional dependency: ${String(error.stderr ?? error).trim().split("\n")[0]}`,
     );
     return "";
   } finally {

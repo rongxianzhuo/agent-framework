@@ -1,5 +1,5 @@
 /**
- * `agent-core/conformance` — the adapter test suite.
+ * `agent-framework/conformance` — the adapter test suite.
  *
  * Exported for people writing their own `LLMClient`, including outside this
  * repository. Kept out of the core entry point because it imports `run` and

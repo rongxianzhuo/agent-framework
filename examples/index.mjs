@@ -8,7 +8,7 @@
  * DeepSeek; both can be overridden with `OPENAI_BASE_URL` and `OPENAI_MODEL`.
  *
  * Agent owns the configuration and conversation history. This example owns
- * terminal input and event rendering; file tools come from agent-core/tools.
+ * terminal input and event rendering; file tools come from agent-framework/tools.
  *
  * Type at `you>`, or `/exit` to quit.
  * Ask it to read a text file by its absolute path and summarize it.
@@ -22,9 +22,9 @@
  */
 import { createInterface } from "node:readline";
 
-import { Agent } from "agent-core";
-import { createReadFileTool, createReadImageTool } from "agent-core/tools";
-import { openaiClient } from "agent-core/openai";
+import { Agent } from "agent-framework";
+import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
+import { openaiClient } from "agent-framework/openai";
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
 if (apiKey === "") {

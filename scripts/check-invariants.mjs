@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Structural invariants for agent-core.
+ * Structural invariants for agent-framework.
  *
  * These are the promises in the README that a reviewer cannot reliably catch by
  * reading a diff. Each one turns into a failing check here, so the repository

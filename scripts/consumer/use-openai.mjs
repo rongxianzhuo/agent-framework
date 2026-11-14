@@ -1,10 +1,10 @@
 // Consumer fixture: the OpenAI subpath, against a local server that speaks SSE.
 //
-// Proves `agent-core/openai` resolves and works after a real `npm install`, with
+// Proves `agent-framework/openai` resolves and works after a real `npm install`, with
 // no API key and no network egress.
 import { createServer } from "node:http";
-import { run, defineTool } from "agent-core";
-import { openaiClient } from "agent-core/openai";
+import { run, defineTool } from "agent-framework";
+import { openaiClient } from "agent-framework/openai";
 
 let lastBody;
 let requests = 0;

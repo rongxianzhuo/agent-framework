@@ -1,7 +1,7 @@
 // Consumer fixture: an adapter written from scratch, checked with the published
 // conformance suite. This is the path an adapter author outside the project takes.
-import { MessageAccumulator } from "agent-core";
-import { runConformance, formatResults, allPassed } from "agent-core/conformance";
+import { MessageAccumulator } from "agent-framework";
+import { runConformance, formatResults, allPassed } from "agent-framework/conformance";
 
 /**
  * A client that answers by matching the prompt. Stands in for a real provider so

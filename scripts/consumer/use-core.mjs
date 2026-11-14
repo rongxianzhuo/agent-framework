@@ -4,8 +4,8 @@
 // packed tarball by name. It exercises what an embedding agent actually does:
 // define a tool, run a multi-turn loop, intercept with hooks, handle a tool that
 // throws.
-import { Agent, run, defineTool, textResult } from "agent-core";
-import { fauxClient } from "agent-core/faux";
+import { Agent, run, defineTool, textResult } from "agent-framework";
+import { fauxClient } from "agent-framework/faux";
 
 const readFile = defineTool({
   name: "read",

@@ -2,7 +2,7 @@
 
 A minimal agent runtime, built to be **embedded** rather than run.
 
-This repository holds `agent-core`: the part of an agent that every agent needs
+This repository holds `agent-framework`: the part of an agent that every agent needs
 and nobody should rewrite. It gives you message types, tool definitions and the
 loop that drives them. It deliberately contains no UI, no session storage, no
 permission prompts, no orchestration and no provider SDKs pinned into the core.
@@ -14,7 +14,7 @@ call, a tool schema, and a loop that feeds tool results back to the model until
 it stops calling tools. That work is boring, easy to get subtly wrong, and has
 nothing to do with what makes your agent different.
 
-`agent-core` is that shared bottom layer. Everything above it — system prompt,
+`agent-framework` is that shared bottom layer. Everything above it — system prompt,
 context trimming, persistence, approvals, sub-agents — stays with the agent that
 imports it.
 
@@ -23,9 +23,9 @@ imports it.
 These are load-bearing. A change that breaks one of them needs a written
 argument.
 
-- **The core has no dependencies.** `import ... from "agent-core"` loads nothing
+- **The core has no dependencies.** `import ... from "agent-framework"` loads nothing
   outside the Node standard library. One dependency exists in the package — the
-  official `openai` SDK — and it is reachable only through `agent-core/openai`.
+  official `openai` SDK — and it is reachable only through `agent-framework/openai`.
   `npm install` will put it on disk either way; a core-only agent never loads it,
   and `npm run check:package` fails if that ever changes.
 - **No global state.** Several instances can run in the same process. The core
@@ -52,11 +52,11 @@ your process:
 
 | Import | What you get |
 | --- | --- |
-| `agent-core` | Agent, loop, messages, tools, schema, hooks. Node built-ins only. |
-| `agent-core/openai` | The OpenAI Chat Completions adapter, plus the message mapping. Loads the `openai` SDK. |
-| `agent-core/faux` | A scripted `LLMClient` for tests. |
-| `agent-core/conformance` | `runConformance`, for anyone writing their own adapter. |
-| `agent-core/tools` | Optional `createReadFileTool` and `createReadImageTool` factories. |
+| `agent-framework` | Agent, loop, messages, tools, schema, hooks. Node built-ins only. |
+| `agent-framework/openai` | The OpenAI Chat Completions adapter, plus the message mapping. Loads the `openai` SDK. |
+| `agent-framework/faux` | A scripted `LLMClient` for tests. |
+| `agent-framework/conformance` | `runConformance`, for anyone writing their own adapter. |
+| `agent-framework/tools` | Optional `createReadFileTool` and `createReadImageTool` factories. |
 
 Requires Node 22 or later. TypeScript consumers need `@types/node`; the
 declarations use `AbortSignal`, `ReadableStream` and `fetch`, which is why the
@@ -70,8 +70,8 @@ for, is in [docs/integration.md](docs/integration.md).
 For a conversation, create one `Agent` and send it each user input:
 
 ```ts
-import { Agent } from "agent-core";
-import { openaiClient } from "agent-core/openai";
+import { Agent } from "agent-framework";
+import { openaiClient } from "agent-framework/openai";
 
 const agent = new Agent({
   client: openaiClient({ baseURL: "https://api.openai.com/v1" }),
@@ -90,8 +90,8 @@ logic. For explicit transcript ownership, use the stateless `run` function:
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { run, defineTool, textResult } from "agent-core";
-import { openaiClient } from "agent-core/openai";
+import { run, defineTool, textResult } from "agent-framework";
+import { openaiClient } from "agent-framework/openai";
 
 const read = defineTool<{ path: string }>({
   name: "read",
@@ -130,7 +130,7 @@ for model or tool failures — those come back in the result.
 ## Built-in file tools
 
 ```ts
-import { createReadFileTool, createReadImageTool } from "agent-core/tools";
+import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
@@ -146,7 +146,7 @@ Both tools require absolute paths. `read_file` returns UTF-8 text; `read_image`
 returns a Base64 image block for PNG, JPEG, GIF or WebP, identified by file
 signature. Each factory accepts optional `name` and `timeoutMs` settings and
 returns an ordinary `ToolDefinition`. Registration is explicit; permissions still
-use your existing `onToolCall` hook. Importing `agent-core` alone loads neither tool.
+use your existing `onToolCall` hook. Importing `agent-framework` alone loads neither tool.
 
 `read_file` rejects obvious binary content and invalid UTF-8 rather than sending
 garbled text to the model. Detection uses contents, not filename extensions;
@@ -252,9 +252,9 @@ which is how caching and test stubs work.
 ## Testing without a model
 
 ```ts
-import { run } from "agent-core";
-import { fauxClient } from "agent-core/faux";
-import { runConformance } from "agent-core/conformance";
+import { run } from "agent-framework";
+import { fauxClient } from "agent-framework/faux";
+import { runConformance } from "agent-framework/conformance";
 
 const client = fauxClient({
   turns: [

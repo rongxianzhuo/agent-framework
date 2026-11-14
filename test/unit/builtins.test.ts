@@ -6,7 +6,7 @@ import { Agent, executeTool } from "../../src/index.js";
 import { createReadFileTool, createReadImageTool } from "../../src/tools.js";
 import { fauxClient } from "../../src/faux.js";
 
-const prefix = resolve(tmpdir(), "agent-core-readers-");
+const prefix = resolve(tmpdir(), "agent-framework-readers-");
 let directory: string;
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5E8AAAAASUVORK5CYII=", "base64");
 const ctx = { callId: "test", turn: 1 };

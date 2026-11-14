@@ -1,7 +1,7 @@
 import type { Usage } from "./usage.js";
 
 /**
- * The data model shared by every part of `agent-core`.
+ * The data model shared by every part of `agent-framework`.
  *
  * Everything here is plain JSON-serializable data: no classes, no functions, no
  * dates, no `undefined` inside arrays. A message list can be written to disk,

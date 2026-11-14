@@ -4,12 +4,12 @@
 // or sloppy declaration fails here rather than in somebody else's editor. The
 // `@ts-expect-error` lines are assertions: if the error stops happening, this
 // file stops compiling.
-import { Agent, run, defineTool, textResult, type AgentInput, type AgentOptions, type AgentRunOptions, type CompressionContext, type ContextCompressionStrategy, type LastRequestInfo, type Message, type RunHooks, type RunResult } from "agent-core";
-import * as core from "agent-core";
-import { fauxClient } from "agent-core/faux";
-import { runConformance, type ConformanceResult } from "agent-core/conformance";
-import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-core";
-import { createReadFileTool, createReadImageTool, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions } from "agent-core/tools";
+import { Agent, run, defineTool, textResult, type AgentInput, type AgentOptions, type AgentRunOptions, type CompressionContext, type ContextCompressionStrategy, type LastRequestInfo, type Message, type RunHooks, type RunResult } from "agent-framework";
+import * as core from "agent-framework";
+import { fauxClient } from "agent-framework/faux";
+import { runConformance, type ConformanceResult } from "agent-framework/conformance";
+import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-framework";
+import { createReadFileTool, createReadImageTool, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions } from "agent-framework/tools";
 
 const tool = defineTool<{ path: string }>({
   name: "read",
@@ -78,7 +78,7 @@ export async function inspectImages(client: LLMClient, model: string, base64: st
 }
 
 // The core entry point must not carry an adapter.
-// @ts-expect-error openaiClient belongs to agent-core/openai
+// @ts-expect-error openaiClient belongs to agent-framework/openai
 core.openaiClient;
 
 // Built-ins belong to the optional tools entry point.

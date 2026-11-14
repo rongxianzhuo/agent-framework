@@ -1,5 +1,5 @@
 {
-  "name": "agent-core",
+  "name": "agent-framework",
   "version": "0.1.0",
   "description": "Minimal, UI-free agent runtime: messages, tools, and a loop. Designed to be embedded as a sub-module of larger agents.",
   "license": "MIT",

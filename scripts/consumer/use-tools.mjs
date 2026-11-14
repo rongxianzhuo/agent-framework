@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Agent } from "agent-core";
-import { createReadFileTool, createReadImageTool } from "agent-core/tools";
-import { fauxClient } from "agent-core/faux";
+import { Agent } from "agent-framework";
+import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
+import { fauxClient } from "agent-framework/faux";
 
 const textPath = resolve("builtin-text.txt");
 const imagePath = resolve("builtin-image.png");

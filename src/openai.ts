@@ -1,5 +1,5 @@
 /**
- * `agent-core/openai` — the OpenAI Chat Completions adapter, on the official SDK.
+ * `agent-framework/openai` — the OpenAI Chat Completions adapter, on the official SDK.
  *
  * A separate entry point because importing it loads the `openai` package. The
  * core entry point does not, so an embedding agent that only wants the loop never

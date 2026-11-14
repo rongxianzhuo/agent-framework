@@ -21,10 +21,10 @@ import {
   type LLMEvent,
   type ToolCall,
   type Usage,
-} from "agent-core";
-import { openaiClient } from "agent-core/openai";
-import { fauxClient } from "agent-core/faux";
-import { runConformance, formatResults, allPassed } from "agent-core/conformance";
+} from "agent-framework";
+import { openaiClient } from "agent-framework/openai";
+import { fauxClient } from "agent-framework/faux";
+import { runConformance, formatResults, allPassed } from "agent-framework/conformance";
 
 // --- Tools ----------------------------------------------------------------
 

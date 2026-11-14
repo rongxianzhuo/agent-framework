@@ -1,4 +1,4 @@
-# Integrating agent-core
+# Integrating agent-framework
 
 Everything you need to put an agent inside your own program. Written for someone
 who has a project and wants a model loop in it, not for someone who wants to
@@ -18,15 +18,15 @@ A function called `run`. Give it a transcript and a client that can talk to a
 model; it calls the model, executes whatever tools the model asks for, feeds the
 results back, and repeats until the model stops asking. It returns the new
 transcript. The `Agent` class wraps this function with per-instance conversation
-history and reusable configuration. Both are available from `agent-core`.
+history and reusable configuration. Both are available from `agent-framework`.
 
 Everything else stays yours: the system prompt, what tools exist and what they
 do, how much history fits, which calls need approval, where the transcript is
 stored, what the user sees. The library has no UI, no session storage, no
 configuration files and no global state.
 
-It has one dependency: the official `openai` SDK, used by `agent-core/openai` and
-nowhere else. Importing `agent-core` alone does not load it, so an agent that only
+It has one dependency: the official `openai` SDK, used by `agent-framework/openai` and
+nowhere else. Importing `agent-framework` alone does not load it, so an agent that only
 wants the loop pays nothing at runtime — though `npm install` puts the SDK on disk
 regardless, because npm has no per-entry-point dependencies. If that matters to
 you, it is the price of not maintaining an SSE framer and a protocol mapping by
@@ -35,13 +35,13 @@ hand.
 ## Install and run
 
 ```sh
-npm install agent-core
+npm install agent-framework
 ```
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { run, defineTool, textResult } from "agent-core";
-import { openaiClient } from "agent-core/openai";
+import { run, defineTool, textResult } from "agent-framework";
+import { openaiClient } from "agent-framework/openai";
 
 const read = defineTool<{ path: string }>({
   name: "read_file",
@@ -79,7 +79,7 @@ Node 22 or later. TypeScript projects need `@types/node` — the public types us
 ## Stateful conversations with Agent
 
 ```ts
-import { Agent } from "agent-core";
+import { Agent } from "agent-framework";
 
 const agent = new Agent({
   client,
@@ -126,7 +126,7 @@ user content, so no extra vision-specific execution API is needed:
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { Agent } from "agent-core";
+import { Agent } from "agent-framework";
 
 const agent = new Agent({ client, model: "your-vision-model" });
 const imageBase64 = (await readFile("/absolute/path/photo.png")).toString("base64");
@@ -187,7 +187,7 @@ or a class implementing that interface. Omitting it or passing `null` disables
 compression; there is no built-in threshold, token estimator or summarizer.
 
 ```ts
-import { Agent, type ContextCompressionStrategy } from "agent-core";
+import { Agent, type ContextCompressionStrategy } from "agent-framework";
 
 const strategy: ContextCompressionStrategy = {
   shouldCompress: ({ lastRequest }) => {
@@ -247,11 +247,11 @@ external and do not add to the Agent's own request usage accounting. The low-lev
 
 | Import | Contents |
 | --- | --- |
-| `agent-core` | Agent, loop, messages, tools, schema validation, hooks |
-| `agent-core/openai` | OpenAI adapter (on the official SDK), wire mapping |
-| `agent-core/faux` | A scripted client for tests |
-| `agent-core/conformance` | `runConformance`, for people writing adapters |
-| `agent-core/tools` | Optional file-reading tool factories and their option/argument types |
+| `agent-framework` | Agent, loop, messages, tools, schema validation, hooks |
+| `agent-framework/openai` | OpenAI adapter (on the official SDK), wire mapping |
+| `agent-framework/faux` | A scripted client for tests |
+| `agent-framework/conformance` | `runConformance`, for people writing adapters |
+| `agent-framework/tools` | Optional file-reading tool factories and their option/argument types |
 
 The split exists so that importing the loop does not load an HTTP adapter. Import
 the subpath you actually use.
@@ -293,7 +293,7 @@ return jsonResult({ rows: 12, took: "40ms" }); // content: pretty JSON, details:
 ## Built-in file readers
 
 ```ts
-import { createReadFileTool, createReadImageTool } from "agent-core/tools";
+import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
@@ -336,7 +336,7 @@ independent definition and schema. Files are read only when the tool executes,
 and its cancellation signal reaches the underlying read. Errors become ordinary
 tool failures through the existing executor; permission decisions still belong
 in `onToolCall`. The tools are never automatically registered and are not exported
-from the core entry point. Importing `agent-core` does not load their modules.
+from the core entry point. Importing `agent-framework` does not load their modules.
 
 The single example uses these factories; it no longer reimplements the readers.
 
@@ -676,7 +676,7 @@ replay text the user already saw.
 
 The OpenAI adapter's `maxRetries` defaults to `0`, **not** the SDK's own default of
 `2`: a library should not silently spend your money. Set it in the agent that owns
-a budget. The retry loop itself is the SDK's, so `agent-core` passes the number
+a budget. The retry loop itself is the SDK's, so `agent-framework` passes the number
 through and then gets out of the way; the SDK already refuses to replay a request
 whose response body has begun streaming.
 
@@ -708,7 +708,7 @@ Assembling partial tool-call JSON is provider dialect, so the core does not do i
 for you; `MessageAccumulator` does, and you feed it every event you emit:
 
 ```ts
-import { MessageAccumulator } from "agent-core";
+import { MessageAccumulator } from "agent-framework";
 
 async *stream(request, options) {
   const accumulator = new MessageAccumulator();
@@ -745,7 +745,7 @@ Rules that matter more than they look:
 Then check it:
 
 ```ts
-import { runConformance, formatResults, allPassed } from "agent-core/conformance";
+import { runConformance, formatResults, allPassed } from "agent-framework/conformance";
 
 const results = await runConformance(myClient, { model: "my-model" });
 console.log(formatResults(results)); // six checks: text, system, tool-call, tool-result, abort, usage
@@ -769,7 +769,7 @@ rather than "wrong".
 `fauxClient` scripts responses and streams them exactly as a real adapter does:
 
 ```ts
-import { fauxClient } from "agent-core/faux";
+import { fauxClient } from "agent-framework/faux";
 
 const client = fauxClient({
   turns: [
@@ -853,9 +853,9 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`details` is not sent to the model.** It is for you. Nothing in it reaches the
   provider, so it is a safe place for structured data, but it is also not a place
   the model can read.
-- **The SDK is installed even if you never touch it.** `npm install agent-core`
+- **The SDK is installed even if you never touch it.** `npm install agent-framework`
   puts `openai` (~35 MB) in `node_modules`. Nothing loads it unless you import
-  `agent-core/openai`, but the disk cost is real. If you are embedding only the
+  `agent-framework/openai`, but the disk cost is real. If you are embedding only the
   loop and care about install size, that is the trade to weigh.
 - **`maxTurns` off by default cuts both ways.** A loop that never terminates will
   not terminate. Watch `turns` in logs and set a ceiling where a run can be long.
