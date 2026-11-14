@@ -5,8 +5,11 @@ who has a project and wants a model loop in it, not for someone who wants to
 understand this repository.
 
 If you would rather read code than prose, `examples/index.mjs` is a
-multi-turn chat bot in one file, and its loop is the shape every embedding agent
-starts from. It targets DeepSeek's endpoint and needs `OPENAI_API_KEY`.
+multi-turn chat bot with a local `read_file` tool in one file, and its loop is the
+shape every embedding agent starts from. It targets DeepSeek's endpoint and needs
+`OPENAI_API_KEY`. Run `npm run example`, then ask it to read a text file by its
+absolute path. The tool rejects relative paths, and the system prompt does not
+include the current working directory.
 
 ## What you are getting
 

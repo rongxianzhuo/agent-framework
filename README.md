@@ -167,8 +167,10 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/index.mjs`** — a multi-turn chat bot in about a hundred lines,
-  pointed at DeepSeek. It prints the model's reasoning above each answer, which is
+- **`examples/index.mjs`** — a multi-turn chat bot with a `read_file` tool,
+  pointed at DeepSeek. Try asking it to read and summarize a text file by its
+  absolute path. Relative paths are rejected. It prints tool
+  activity and the model's reasoning above each answer, which is
   what `thinking_delta` events are for. The part worth reading is how the
   transcript is carried between turns, since the library keeps no state. Needs
   `OPENAI_API_KEY`, then `npm run example`.

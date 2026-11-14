@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * A multi-turn chat bot against DeepSeek, in one file.
+ * A multi-turn chat bot with a local file-reading tool, against DeepSeek.
  *
  *   npm run example
  *
@@ -8,8 +8,8 @@
  * DeepSeek; both can be overridden with `OPENAI_BASE_URL` and `OPENAI_MODEL`.
  *
  * Everything here is the smallest version of something an embedding agent needs:
- * a system prompt, a loop that reads a line and answers it, and a transcript that
- * survives between turns.
+ * a system prompt, a tool, a loop that reads a line and answers it, and a
+ * transcript that survives between turns.
  *
  * That last part is the one thing worth reading the code for. `run()` holds no
  * state: it returns the transcript it produced, and passing that back in on the
@@ -17,15 +17,18 @@
  * questions. There is no session object to open, close or clean up.
  *
  * Type at `you>`, or `/exit` to quit.
+ * Ask it to read a text file by its absolute path and summarize it.
  *
  * The bot shows the model's reasoning above its answer, because DeepSeek's
  * thinking mode produces a lot of it and watching it is half the point of
  * running a chat demo against a reasoning model. Thinking display and reasoning
  * effort are fixed below; edit the constants to change them.
  */
+import { readFile } from "node:fs/promises";
+import { isAbsolute, parse } from "node:path";
 import { createInterface } from "node:readline";
 
-import { run } from "agent-core";
+import { defineTool, run, textResult } from "agent-core";
 import { openaiClient } from "agent-core/openai";
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -51,11 +54,32 @@ const model = process.env.OPENAI_MODEL ?? "deepseek-flash";
 const reasoningEffort = "high";
 const showThinking = true;
 
+const readFileTool = defineTool({
+  name: "read_file",
+  description: "Read a local UTF-8 text file using an absolute path. Relative paths are not accepted.",
+  parameters: {
+    type: "object",
+    properties: { path: { type: "string", minLength: 1, description: "Absolute path of the text file to read." } },
+    required: ["path"],
+    additionalProperties: false,
+  },
+  execute: async ({ path }, ctx) => {
+    // On Windows, a root-only path such as \file still depends on the current drive.
+    if (!isAbsolute(path) || (process.platform === "win32" && parse(path).root.length === 1)) {
+      throw new Error("An absolute file path is required. Ask the user for the full path.");
+    }
+    return textResult(await readFile(path, { encoding: "utf8", signal: ctx.signal }));
+  },
+});
+
 // The conversation lives here, not in the library.
 let messages = [
   {
     role: "system",
-    content: [{ type: "text", text: "You are a helpful assistant. Keep answers short." }],
+    content: [{
+      type: "text",
+      text: "You are a helpful assistant. Keep answers short. Use read_file when you need to inspect a local file; do not guess its contents. The tool requires an absolute path. If the user has not provided one, ask for it rather than guessing a path.",
+    }],
   },
 ];
 
@@ -90,8 +114,18 @@ for await (const line of rl) {
     client,
     model,
     messages,
+    tools: [readFileTool],
     reasoningEffort,
     onEvent: (event) => {
+      if (event.type === "tool_start" || event.type === "tool_end") {
+        if (mode !== "idle") process.stdout.write("\n");
+        mode = "idle";
+        if (event.type === "tool_start") {
+          console.log(`tool> ${event.toolName} ${JSON.stringify(event.args)}`);
+        } else {
+          console.log(`tool> ${event.toolName} ${event.result.isError ? "failed" : "completed"}`);
+        }
+      }
       if (event.type === "thinking_delta") {
         if (!showThinking) return;
         open("thinking");
