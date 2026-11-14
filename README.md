@@ -56,7 +56,7 @@ your process:
 | `agent-framework/openai` | The OpenAI Chat Completions adapter, plus the message mapping. Loads the `openai` SDK. |
 | `agent-framework/faux` | A scripted `LLMClient` for tests. |
 | `agent-framework/conformance` | `runConformance`, for anyone writing their own adapter. |
-| `agent-framework/tools` | Optional `createReadFileTool` and `createReadImageTool` factories. |
+| `agent-framework/tools` | Optional text/image reader and text writer factories. |
 
 Requires Node 22 or later. TypeScript consumers need `@types/node`; the
 declarations use `AbortSignal`, `ReadableStream` and `fetch`, which is why the
@@ -130,7 +130,7 @@ for model or tool failures — those come back in the result.
 ## Built-in file tools
 
 ```ts
-import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
+import { createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
@@ -138,15 +138,20 @@ const agent = new Agent({
   tools: [
     createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
     createReadImageTool({ timeoutMs: 10_000 }),
+    createWriteFileTool(),
   ],
 });
 ```
 
-Both tools require absolute paths. `read_file` returns UTF-8 text; `read_image`
+All file tools require absolute paths. `read_file` returns UTF-8 text; `read_image`
 returns a Base64 image block for PNG, JPEG, GIF or WebP, identified by file
 signature. Each factory accepts optional `name` and `timeoutMs` settings and
 returns an ordinary `ToolDefinition`. Registration is explicit; permissions still
-use your existing `onToolCall` hook. Importing `agent-framework` alone loads neither tool.
+use your existing `onToolCall` hook. Importing `agent-framework` alone loads none of these tools.
+
+`write_file` accepts `{ path, content }` and creates or overwrites a UTF-8 text
+file. Empty content clears the file. Parent directories must already exist, and
+success returns a text confirmation with the number of bytes written.
 
 `read_file` rejects obvious binary content and invalid UTF-8 rather than sending
 garbled text to the model. Detection uses contents, not filename extensions;
@@ -272,8 +277,8 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/index.mjs`** — a multi-turn chat bot with `read_file` and
-  `read_image` tools. Give an absolute path to a text file or a PNG/JPEG/GIF/WebP
+- **`examples/index.mjs`** — a multi-turn chat bot with `read_file`, `read_image`
+  and `write_file` tools. Give an absolute path to a text file or a PNG/JPEG/GIF/WebP
   image. Configure a vision-capable endpoint/model for image understanding;
   the default endpoint is DeepSeek. Relative paths are rejected. It prints tool
   activity and the model's reasoning above each answer, which is
@@ -300,7 +305,7 @@ core entry point from loading adapters, SDKs or built-in file tools.
 ## Status
 
 Implemented: message model, JSON Schema subset validation, tools, Agent, the loop, the
-provider contract, hooks, context compression strategies, built-in file readers,
+provider contract, hooks, context compression strategies, built-in file readers and writer,
 a scripted provider, a conformance suite, and the OpenAI adapter.
 
 Not implemented, on purpose: any UI, session storage, permissions *policy* (the

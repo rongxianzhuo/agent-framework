@@ -1,4 +1,4 @@
-/** Options shared by the built-in file-reading tools. */
+/** Name and timeout options shared by built-in filesystem tools. */
 export interface ReadToolOptions {
   /** Override the tool's default name. */
   name?: string;
@@ -10,6 +10,15 @@ export interface ReadToolOptions {
 export interface ReadFileToolOptions extends ReadToolOptions {
   /** Maximum file size in bytes. Omit for no limit; zero allows only empty files. */
   maxBytes?: number;
+}
+
+/** Writer factories accept the same optional name and timeout settings. */
+export type WriteFileToolOptions = ReadToolOptions;
+
+/** UTF-8 text to create or overwrite at an absolute path. */
+export interface WriteFileArgs {
+  path: string;
+  content: string;
 }
 
 /** Both readers require a fully qualified absolute file path. */

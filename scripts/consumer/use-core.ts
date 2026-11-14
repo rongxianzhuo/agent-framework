@@ -9,7 +9,7 @@ import * as core from "agent-framework";
 import { fauxClient } from "agent-framework/faux";
 import { runConformance, type ConformanceResult } from "agent-framework/conformance";
 import type { Base64ImageBlock, ImageBlock, LLMClient, UrlImageBlock } from "agent-framework";
-import { createReadFileTool, createReadImageTool, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions } from "agent-framework/tools";
+import { createReadFileTool, createReadImageTool, createWriteFileTool, type ReadFileToolOptions, type ReadPathArgs, type ReadToolOptions, type WriteFileArgs, type WriteFileToolOptions } from "agent-framework/tools";
 
 const tool = defineTool<{ path: string }>({
   name: "read",
@@ -84,6 +84,18 @@ core.openaiClient;
 // Built-ins belong to the optional tools entry point.
 // @ts-expect-error core-only consumers do not load built-in file tools
 core.createReadFileTool;
+// @ts-expect-error writers also belong to the optional tools entry point
+core.createWriteFileTool;
+
+export function builtinWriter() {
+  const options: WriteFileToolOptions = { name: "save_text", timeoutMs: 1000 };
+  const writer = createWriteFileTool(options);
+  const args: WriteFileArgs = { path: "/absolute/file.txt", content: "text" };
+  const execute = () => writer.execute(args, { callId: "write", turn: 1 });
+  // @ts-expect-error writing requires text content as well as a path
+  const invalid = () => writer.execute({ path: args.path }, { callId: "write", turn: 1 });
+  return { writer, execute, invalid };
+}
 
 export function builtinReaders() {
   const common: ReadToolOptions = { name: "open_text", timeoutMs: 1000 };

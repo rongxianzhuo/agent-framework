@@ -5,11 +5,12 @@ who has a project and wants a model loop in it, not for someone who wants to
 understand this repository.
 
 If you would rather read code than prose, `examples/index.mjs` is a
-multi-turn chat bot with local `read_file` and `read_image` tools in one file, and its loop is the
+multi-turn chat bot with local `read_file`, `read_image` and `write_file` tools in one file, and its loop is the
 shape every embedding agent starts from. It targets DeepSeek's endpoint and needs
 `OPENAI_API_KEY`. Run `npm run example`, then ask it to read a text file by its
 absolute path. For images, configure a vision-capable endpoint/model and ask it
-to inspect a PNG, JPEG, GIF or WebP file by absolute path. Both tools reject
+to inspect a PNG, JPEG, GIF or WebP file by absolute path. `write_file` can create
+or overwrite text files. All file tools reject
 relative paths, and the system prompt does not include the current working directory.
 
 ## What you are getting
@@ -251,7 +252,7 @@ external and do not add to the Agent's own request usage accounting. The low-lev
 | `agent-framework/openai` | OpenAI adapter (on the official SDK), wire mapping |
 | `agent-framework/faux` | A scripted client for tests |
 | `agent-framework/conformance` | `runConformance`, for people writing adapters |
-| `agent-framework/tools` | Optional file-reading tool factories and their option/argument types |
+| `agent-framework/tools` | Optional file tool factories and their option/argument types |
 
 The split exists so that importing the loop does not load an HTTP adapter. Import
 the subpath you actually use.
@@ -290,10 +291,10 @@ sees a string; your UI sees structured data.
 return jsonResult({ rows: 12, took: "40ms" }); // content: pretty JSON, details: the object
 ```
 
-## Built-in file readers
+## Built-in file tools
 
 ```ts
-import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
+import { createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
@@ -301,12 +302,15 @@ const agent = new Agent({
   tools: [
     createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
     createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
+    createWriteFileTool(),
   ],
 });
 ```
 
-The factories return ordinary `ToolDefinition<ReadPathArgs>` values; the shared
-argument shape is `{ path: string }`. Both reject relative paths, including
+The readers return ordinary `ToolDefinition<ReadPathArgs>` values; their shared
+argument shape is `{ path: string }`. The writer returns
+`ToolDefinition<WriteFileArgs>` with `{ path: string, content: string }` arguments.
+All three reject relative paths, including
 Windows drive-relative and root-only paths. There is no working-directory fallback.
 
 - `createReadFileTool()` defaults to the name `read_file` and returns UTF-8 text
@@ -319,8 +323,15 @@ Windows drive-relative and root-only paths. There is no working-directory fallba
 - `createReadImageTool()` defaults to `read_image` and returns an image block with
   its MIME type and raw Base64 data. PNG, JPEG, GIF and WebP are recognized from
   file signatures; this does not perform full image decoding or validation.
+- `createWriteFileTool()` defaults to `write_file`. It creates or overwrites the
+  supplied file with UTF-8 `content`, truncating any previous contents. An empty
+  string creates or empties the file. Parent directories must already exist;
+  missing parents and write failures return normal tool errors. Success returns
+  a text confirmation with the UTF-8 byte count and path. Writes are not atomic;
+  cancellation or an I/O failure after writing starts may leave partial contents.
 
-Both accept `ReadToolOptions`: optional `name` and `timeoutMs`. The text reader
+Readers accept `ReadToolOptions` and the writer accepts `WriteFileToolOptions`:
+optional `name` and `timeoutMs`. The text reader
 uses the extended `ReadFileToolOptions`, which additionally accepts `maxBytes`.
 This is developer configuration, not a model-provided tool argument. It must be
 a non-negative safe integer, measured in bytes rather than Unicode characters.
@@ -330,15 +341,14 @@ content. The reader checks the size on an open handle, then reads that same file
 in bounded chunks, at most `maxBytes + 1` bytes, so growth after the check cannot
 cause an unbounded read. Handles are closed on success, failure and cancellation.
 
-Names and timeouts
-use the same definition validation as custom tools. Each invocation creates an
-independent definition and schema. Files are read only when the tool executes,
-and its cancellation signal reaches the underlying read. Errors become ordinary
+Names and timeouts use the same definition validation as custom tools. Each invocation creates an
+independent definition and schema. File I/O occurs only when the tool executes,
+and its cancellation signal reaches the underlying operation. Errors become ordinary
 tool failures through the existing executor; permission decisions still belong
 in `onToolCall`. The tools are never automatically registered and are not exported
 from the core entry point. Importing `agent-framework` does not load their modules.
 
-The single example uses these factories; it no longer reimplements the readers.
+The single example uses these factories; it does not reimplement filesystem tools.
 
 ## Tools
 

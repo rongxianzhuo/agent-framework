@@ -1,9 +1,9 @@
 // Optional built-in tools, consumed by package name from an installed tarball.
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Agent } from "agent-framework";
-import { createReadFileTool, createReadImageTool } from "agent-framework/tools";
+import { createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 import { fauxClient } from "agent-framework/faux";
 
 const textPath = resolve("builtin-text.txt");
@@ -33,4 +33,10 @@ const textBytes = Buffer.byteLength("Hello, 内置工具!", "utf8");
 assert.deepEqual((await createReadFileTool({ maxBytes: textBytes }).execute({ path: textPath }, { callId: "test", turn: 1 })).content,
   [{ type: "text", text: "Hello, 内置工具!" }]);
 await assert.rejects(createReadFileTool({ maxBytes: textBytes - 1 }).execute({ path: textPath }, { callId: "test", turn: 1 }), /maximum size/);
+const writePath = resolve("builtin-written.txt");
+const writer = createWriteFileTool({ name: "save_text", timeoutMs: 1000 });
+await writer.execute({ path: writePath, content: "a long initial value" }, { callId: "write", turn: 1 });
+const written = await writer.execute({ path: writePath, content: "新" }, { callId: "write", turn: 2 });
+assert.equal(await readFile(writePath, "utf8"), "新");
+assert.deepEqual(written.content, [{ type: "text", text: `Wrote 3 bytes to ${writePath}.` }]);
 console.log("  built-in tool consumer: passed");
