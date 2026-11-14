@@ -36,8 +36,9 @@ argument.
 - **No I/O of its own.** The core never touches the filesystem or the network;
   it only calls the tool and client objects you hand it.
 - **Data in, data out.** `run` returns the full message list rather than hiding
-  state internally, so callers own persistence and replay.
-- **Small surface.** Message types, tools, one `run` function, a few hooks.
+  state internally. The optional `Agent` class retains that list per instance;
+  callers still own persistence and replay.
+- **Small surface.** Message types, tools, `run`, an `Agent` class, a few hooks.
 
 Provider adapters live under `src/providers/`. `src/` is the only place allowed
 to import a package, and only the adapters there do.
@@ -48,7 +49,7 @@ Four, so that importing the core does not pull an adapter into your process:
 
 | Import | What you get |
 | --- | --- |
-| `agent-core` | Loop, messages, tools, schema, hooks. Node built-ins only. |
+| `agent-core` | Agent, loop, messages, tools, schema, hooks. Node built-ins only. |
 | `agent-core/openai` | The OpenAI Chat Completions adapter, plus the message mapping. Loads the `openai` SDK. |
 | `agent-core/faux` | A scripted `LLMClient` for tests. |
 | `agent-core/conformance` | `runConformance`, for anyone writing their own adapter. |
@@ -61,6 +62,27 @@ The full guide, including how to write your own adapter and what to watch out
 for, is in [docs/integration.md](docs/integration.md).
 
 ## Usage
+
+For a conversation, create one `Agent` and send it each user input:
+
+```ts
+import { Agent } from "agent-core";
+import { openaiClient } from "agent-core/openai";
+
+const agent = new Agent({
+  client: openaiClient({ baseURL: "https://api.openai.com/v1" }),
+  model: "gpt-4o-mini",
+  system: "You are a helpful assistant.",
+});
+
+await agent.run("My name is Alex.");
+const result = await agent.run("What is my name?");
+// agent.messages is a snapshot; save it wherever you like.
+```
+
+`Agent` accepts tools, hooks and generation defaults. Each call can supply
+`onEvent`, `signal` and other execution overrides. It has no terminal or rendering
+logic. For explicit transcript ownership, use the stateless `run` function:
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -171,14 +193,14 @@ including one you write yourself — and returns pass/fail data.
   pointed at DeepSeek. Try asking it to read and summarize a text file by its
   absolute path. Relative paths are rejected. It prints tool
   activity and the model's reasoning above each answer, which is
-  what `thinking_delta` events are for. The part worth reading is how the
-  transcript is carried between turns, since the library keeps no state. Needs
+  what `thinking_delta` events are for. `Agent` carries the transcript between
+  turns; terminal input and rendering stay in the example. Needs
   `OPENAI_API_KEY`, then `npm run example`.
 
 ## Source layout
 
 - `src/core/` — messages, model client contracts, schema types, errors and usage.
-- `src/runtime/` — the run loop, events, hooks and transcript validation.
+- `src/runtime/` — Agent, the run loop, events, hooks and transcript validation.
 - `src/tools/` — tool definitions, registry, execution, results and schema validation.
 - `src/providers/` — concrete adapters and dependency-free shared stream assembly.
 - `src/testing/` — the adapter conformance suite.
@@ -191,7 +213,7 @@ these boundaries and prevents the core entry point from loading an adapter or SD
 
 ## Status
 
-Implemented: message model, JSON Schema subset validation, tools, the loop, the
+Implemented: message model, JSON Schema subset validation, tools, Agent, the loop, the
 provider contract, hooks, a scripted provider, a conformance suite, and the
 OpenAI adapter.
 

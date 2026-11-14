@@ -7,7 +7,7 @@
  * public by accident.
  *
  * The surface is intentionally small: message types, tool definitions, one
- * `run` function and a handful of hooks. Everything else — UI, persistence,
+ * `run` function, a conversation-owning `Agent` and a handful of hooks. UI, persistence,
  * permissions, orchestration, provider SDKs — belongs to the embedding agent.
  */
 
@@ -74,6 +74,7 @@ export {
 
 // Loop
 export { run, type RunOptions, type RunResult } from "./runtime/run.js";
+export { Agent, type AgentInput, type AgentOptions, type AgentRunOptions } from "./runtime/agent.js";
 
 // Hooks: the caller's interception points in a run
 export {

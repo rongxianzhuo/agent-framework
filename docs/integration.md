@@ -16,7 +16,8 @@ include the current working directory.
 A function called `run`. Give it a transcript and a client that can talk to a
 model; it calls the model, executes whatever tools the model asks for, feeds the
 results back, and repeats until the model stops asking. It returns the new
-transcript.
+transcript. The `Agent` class wraps this function with per-instance conversation
+history and reusable configuration. Both are available from `agent-core`.
 
 Everything else stays yours: the system prompt, what tools exist and what they
 do, how much history fits, which calls need approval, where the transcript is
@@ -74,11 +75,53 @@ await save(result.messages); // anywhere you like
 Node 22 or later. TypeScript projects need `@types/node` — the public types use
 `AbortSignal`, `ReadableStream` and `fetch`, and no `DOM` lib is required.
 
+## Stateful conversations with Agent
+
+```ts
+import { Agent } from "agent-core";
+
+const agent = new Agent({
+  client,
+  model: "gpt-4o-mini",
+  system: "You are a coding agent.",
+  tools: [read],
+});
+
+await agent.run("Read a.ts", { onEvent });
+await agent.run("Summarize the file", { onEvent }); // automatically includes history
+
+const saved = agent.messages;
+agent.reset();                  // restores the constructor's system prompt
+agent.replaceMessages(saved);   // restores the full transcript, including system messages
+```
+
+Pass a string or an array of content blocks to `agent.run(input, options)`.
+Constructor options supply defaults; per-call execution options such as `signal`,
+`maxTurns`, `onEvent`, `hooks` and sampling settings override those defaults for
+that call only. A per-call listener or hooks object replaces the default one.
+The return value is the same `RunResult` as `run()`; usage and turns cover only
+that execution, while messages contain the entire conversation.
+
+Call `agent.run()` without input to continue after a turn limit or retry a failed
+model request without adding the same user message again. Model errors and
+cancellations retain the returned transcript. If cancellation or a hook failure
+left unanswered tool calls, the next run throws before contacting the model.
+Inspect `agent.messages`, supply the actual tool outcomes with
+`replaceMessages()`, or explicitly `reset()` to start a new conversation. Agent
+does not automatically replay tools, since they may already have had side effects.
+
+Snapshots and returned results cannot mutate Agent's stored message data. Opaque
+tool-result `details` are kept by reference so application objects remain usable;
+their ownership and serialization stay with the caller. `replaceMessages()` checks
+tool-call/result pairing before accepting history. Concurrent runs or history
+edits during a run are rejected; use separate instances for separate conversations.
+Input, rendering, storage and retry policy remain application responsibilities.
+
 ## Four entry points
 
 | Import | Contents |
 | --- | --- |
-| `agent-core` | Loop, messages, tools, schema validation, hooks |
+| `agent-core` | Agent, loop, messages, tools, schema validation, hooks |
 | `agent-core/openai` | OpenAI adapter (on the official SDK), wire mapping |
 | `agent-core/faux` | A scripted client for tests |
 | `agent-core/conformance` | `runConformance`, for people writing adapters |

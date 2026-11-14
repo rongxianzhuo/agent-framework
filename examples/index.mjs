@@ -7,14 +7,8 @@
  * Needs `OPENAI_API_KEY` in the environment. The base URL and model default to
  * DeepSeek; both can be overridden with `OPENAI_BASE_URL` and `OPENAI_MODEL`.
  *
- * Everything here is the smallest version of something an embedding agent needs:
- * a system prompt, a tool, a loop that reads a line and answers it, and a
- * transcript that survives between turns.
- *
- * That last part is the one thing worth reading the code for. `run()` holds no
- * state: it returns the transcript it produced, and passing that back in on the
- * next call is what makes it a conversation rather than a series of unrelated
- * questions. There is no session object to open, close or clean up.
+ * Agent owns the configuration and conversation history. This example owns
+ * the file tool, terminal input and event rendering.
  *
  * Type at `you>`, or `/exit` to quit.
  * Ask it to read a text file by its absolute path and summarize it.
@@ -28,7 +22,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, parse } from "node:path";
 import { createInterface } from "node:readline";
 
-import { defineTool, run, textResult } from "agent-core";
+import { Agent, defineTool, textResult } from "agent-core";
 import { openaiClient } from "agent-core/openai";
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -72,16 +66,13 @@ const readFileTool = defineTool({
   },
 });
 
-// The conversation lives here, not in the library.
-let messages = [
-  {
-    role: "system",
-    content: [{
-      type: "text",
-      text: "You are a helpful assistant. Keep answers short. Use read_file when you need to inspect a local file; do not guess its contents. The tool requires an absolute path. If the user has not provided one, ask for it rather than guessing a path.",
-    }],
-  },
-];
+const agent = new Agent({
+  client,
+  model,
+  tools: [readFileTool],
+  reasoningEffort,
+  system: "You are a helpful assistant. Keep answers short. Use read_file when you need to inspect a local file; do not guess its contents. The tool requires an absolute path. If the user has not provided one, ask for it rather than guessing a path.",
+});
 
 const terminal = process.stdin.isTTY;
 const rl = createInterface({ input: process.stdin, output: process.stdout, terminal });
@@ -96,8 +87,6 @@ for await (const line of rl) {
   }
   if (text === "/exit" || text === "/quit") break;
 
-  messages.push({ role: "user", content: [{ type: "text", text }] });
-
   // Reasoning and answer arrive interleaved on one stream, so some state is
   // needed to know whether the current line is the model thinking or talking.
   // The two get different prefixes: reasoning is often long, and mixing it into
@@ -109,13 +98,7 @@ for await (const line of rl) {
     mode = next;
   };
 
-  // Nothing is mutated for us: the result carries the transcript to send next.
-  const result = await run({
-    client,
-    model,
-    messages,
-    tools: [readFileTool],
-    reasoningEffort,
+  const result = await agent.run(text, {
     onEvent: (event) => {
       if (event.type === "tool_start" || event.type === "tool_end") {
         if (mode !== "idle") process.stdout.write("\n");
@@ -144,7 +127,6 @@ for await (const line of rl) {
   } else if (result.usage !== undefined) {
     console.log(`[${result.usage.totalTokens} tokens]`);
   }
-  messages = result.messages;
 
   if (terminal) rl.prompt();
 }

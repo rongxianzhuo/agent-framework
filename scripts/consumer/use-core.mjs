@@ -4,7 +4,7 @@
 // packed tarball by name. It exercises what an embedding agent actually does:
 // define a tool, run a multi-turn loop, intercept with hooks, handle a tool that
 // throws.
-import { run, defineTool, textResult } from "agent-core";
+import { Agent, run, defineTool, textResult } from "agent-core";
 import { fauxClient } from "agent-core/faux";
 
 const readFile = defineTool({
@@ -75,6 +75,16 @@ const upper = result.messages.some(
     message.content.some((block) => block.type === "text" && block.text === "CONTENTS OF A.TXT"),
 );
 if (!upper) failures.push("onToolResult did not rewrite the tool result");
+
+const conversationClient = fauxClient({ turns: [{ text: "Hello Alex." }, { text: "Alex." }] });
+const agent = new Agent({ client: conversationClient, model: "demo", system: "Be brief." });
+await agent.run("My name is Alex.");
+await agent.run("What is my name?");
+if (conversationClient.requests[1]?.messages.length !== 4) failures.push("Agent did not preserve the first exchange");
+const saved = agent.messages;
+agent.reset();
+agent.replaceMessages(saved);
+if (agent.messages.length !== 5) failures.push("Agent did not restore the conversation");
 
 export const problems = failures;
 if (failures.length > 0) {
