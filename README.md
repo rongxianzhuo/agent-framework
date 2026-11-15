@@ -65,6 +65,36 @@ package needs no `DOM` lib.
 The full guide, including how to write your own adapter and what to watch out
 for, is in [docs/integration.md](docs/integration.md).
 
+## Install in another project
+
+Install the prebuilt package from GitHub Releases. In your application's root
+directory (the one containing its `package.json`), run:
+
+```sh
+npm install https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz
+```
+
+This command installs the package and automatically saves the URL under
+`dependencies` in your application's `package.json`, updating the lockfile too.
+Alternatively, merge this dependency into your existing `package.json`:
+
+```json
+{
+  "dependencies": {
+    "agent-framework": "https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz"
+  }
+}
+```
+
+Then run `npm install` in that application. These are two alternative ways to
+declare the same dependency. The release already contains compiled JavaScript
+and TypeScript declarations; consumers do not need to clone, build or pack this
+repository. Imports still use `agent-framework` and its subpaths, as shown below.
+
+The URL pins version `0.1.0`. To upgrade, change both the release tag and archive
+filename to the desired published version, then run `npm install` again and
+commit the updated `package.json` and lockfile in your application.
+
 ## Usage
 
 For a conversation, create one `Agent` and send it each user input:

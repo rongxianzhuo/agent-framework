@@ -35,9 +35,37 @@ hand.
 
 ## Install and run
 
+Requires Node.js 22 or later. In the root of the project that will use the
+framework (where that project's `package.json` lives), install the prebuilt
+GitHub Release archive:
+
 ```sh
-npm install agent-framework
+npm install https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz
 ```
+
+This automatically records the dependency in the consuming project's
+`package.json` and updates its lockfile. You can instead merge the following
+entry into your existing `dependencies` and then run `npm install`:
+
+```json
+{
+  "dependencies": {
+    "agent-framework": "https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz"
+  }
+}
+```
+
+Use either the URL install command or the manual dependency entry; both produce
+the same installation. Keep the rest of your application's existing configuration.
+The archive includes `dist` and type declarations, so consumers do not need this
+repository's source, build commands or `npm pack`. The installed package is named
+`agent-framework`; use normal package imports, not the download URL in code.
+
+To upgrade, update both `v0.1.0` and `agent-framework-0.1.0.tgz` in the dependency
+URL to the desired published version and run `npm install`. Commit the resulting
+`package.json` and lockfile changes in the consuming project. Versioned Release
+URLs pin the selected artifact; installing dependencies again does not select a
+newer framework release automatically.
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -913,8 +941,8 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`details` is not sent to the model.** It is for you. Nothing in it reaches the
   provider, so it is a safe place for structured data, but it is also not a place
   the model can read.
-- **The SDK is installed even if you never touch it.** `npm install agent-framework`
-  puts `openai` (~35 MB) in `node_modules`. Nothing loads it unless you import
+- **The SDK is installed even if you never touch it.** Installing the Release
+  archive also puts `openai` (~35 MB) in `node_modules`. Nothing loads it unless you import
   `agent-framework/openai`, but the disk cost is real. If you are embedding only the
   loop and care about install size, that is the trade to weigh.
 - **`maxTurns` off by default cuts both ways.** A loop that never terminates will
