@@ -4,7 +4,7 @@ A minimal agent runtime, built to be **embedded** rather than run.
 
 This repository holds `agent-framework`: the part of an agent that every agent needs
 and nobody should rewrite. It gives you message types, tool definitions and the
-loop that drives them. It deliberately contains no UI, no session storage, no
+loop that drives them. It deliberately contains no UI, no database storage, no
 permission prompts, no orchestration and no provider SDKs pinned into the core.
 
 ## Why it exists
@@ -15,7 +15,7 @@ it stops calling tools. That work is boring, easy to get subtly wrong, and has
 nothing to do with what makes your agent different.
 
 `agent-framework` is that shared bottom layer. Everything above it — system prompt,
-context trimming, persistence, approvals, sub-agents — stays with the agent that
+context trimming policy, storage beyond an optional JSON history file, approvals, sub-agents — stays with the agent that
 imports it.
 
 ## Design constraints
@@ -29,17 +29,18 @@ argument.
   `npm install` will put it on disk either way; a core-only agent never loads it,
   and `npm run check:package` fails if that ever changes.
 - **No global state.** Several instances can run in the same process. The core
-  reads no environment variables, no config files, no working directory, and holds
-  no singletons. (The OpenAI adapter does fall back to `OPENAI_API_KEY` when no key
+  holds no singletons and discovers no configuration. An explicitly configured
+  `historyFile` is resolved against the working directory and loaded by that Agent.
+  (The OpenAI adapter does fall back to `OPENAI_API_KEY` when no key
   is passed to it, which is the one deliberate exception and is documented on that
   option.)
-- **No I/O of its own.** The core never touches the filesystem or the network;
-  it only calls the tool and client objects you hand it. Optional built-in file
-  tools perform I/O only when explicitly registered and executed.
+- **Explicit I/O.** The stateless loop only calls the tool and client objects you
+  hand it. Agent file storage runs only with `historyFile` configured; built-in
+  file tools perform I/O only when explicitly registered and executed.
 - **Data in, data out.** `run` returns the full message list rather than hiding
   state internally. Hooks can explicitly replace that history. The optional
-  `Agent` class retains the resulting list per instance;
-  callers still own persistence and replay.
+  `Agent` class retains the resulting list per instance and can save completed
+  conversations to an explicitly configured JSON file.
 - **Small surface.** Message types, tools, `run`, an `Agent` class, a few hooks.
 
 Provider adapters live under `src/providers/`. `src/` is the only place allowed
@@ -116,7 +117,22 @@ const result = await agent.run("What is my name?");
 
 `Agent` accepts tools, hooks and generation defaults. Each call can supply
 `onEvent`, `signal` and other execution overrides. It has no terminal or rendering
-logic. For explicit transcript ownership, use the stateless `run` function:
+logic. Set `historyFile` to load and save conversation history automatically:
+
+```ts
+const agent = new Agent({ client, model: "your-model", system: "Be helpful.",
+  historyFile: "./history.json" });
+await agent.run("Hello"); // Resolves after the completed exchange is saved.
+```
+
+The file contains a JSON `Message[]` without system messages. A missing file
+starts an empty conversation; its parent directory must already exist. Only a
+`completed` run saves the full current history, including tool calls and results. Failed,
+aborted or turn-limited runs stay in memory until successfully continued. Context
+compression is reflected in the saved history. See
+[history persistence](docs/integration.md#json-history-persistence) for details.
+
+For explicit transcript ownership, use the stateless `run` function:
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -334,6 +350,8 @@ including one you write yourself — and returns pass/fail data.
   what `thinking_delta` events are for. `Agent` carries the transcript between
   turns; terminal input and rendering stay in the example. Needs
   `OPENAI_API_KEY`, then `npm run example`.
+  Completed conversations are saved to `examples/history.json` and restored on
+  restart. Stop the example and delete that file to start a new conversation.
 
 ## Source layout
 
@@ -354,9 +372,9 @@ core entry point from loading adapters, SDKs or built-in file tools.
 ## Status
 
 Implemented: message model, JSON Schema subset validation, tools, Agent, the loop, the
-provider contract, hooks, context compression strategies, built-in file readers, writer and editor,
+provider contract, hooks, JSON history persistence, context compression strategies, built-in file readers, writer and editor,
 a scripted provider, a conformance suite, and the OpenAI adapter.
 
-Not implemented, on purpose: any UI, session storage, permissions *policy* (the
+Not implemented, on purpose: any UI, database session storage, permissions *policy* (the
 hook is the mechanism; deciding who may delete what is the caller's), retries
 above the adapter layer, built-in context summarization, MCP, sub-agents.

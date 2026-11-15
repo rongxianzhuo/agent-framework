@@ -4,12 +4,16 @@ import { run, type RunOptions, type RunResult } from "./run.js";
 import { describeTranscriptProblems, findTranscriptProblems } from "./transcript.js";
 import type { CompressionContext, ContextCompressionStrategy, LastRequestInfo } from "./compression.js";
 import type { BeforeRequestHook, RunHooks } from "./hooks.js";
+import { loadHistory, saveHistory } from "./history.js";
+import { resolve } from "node:path";
 
-/** Defaults for one conversation. Input/output and persistence belong to the caller. */
+/** Defaults for one conversation, with optional JSON history persistence. */
 export interface AgentOptions extends Omit<RunOptions, "messages" | "signal"> {
   system?: string;
   /** Omit or set null to disable automatic context compression. */
   contextCompression?: ContextCompressionStrategy | null;
+  /** Load history and save the full non-system transcript after each completed run. */
+  historyFile?: string;
 }
 
 /** Overrides for one execution; omitted fields keep the agent's defaults. */
@@ -26,13 +30,14 @@ export type AgentInput = string | readonly ContentBlock[];
  */
 export class Agent {
   readonly #defaults: Omit<RunOptions, "messages" | "signal">;
-  readonly #initialMessages: Message[];
+  readonly #system: string | undefined;
   readonly #compression: ContextCompressionStrategy | null | undefined;
+  readonly #historyFile: string | undefined;
   #messages: Message[];
   #lastRequest: LastRequestInfo | undefined;
   #running = false;
 
-  constructor({ system, contextCompression, ...defaults }: AgentOptions) {
+  constructor({ system, contextCompression, historyFile, ...defaults }: AgentOptions) {
     const client = defaults.client;
     this.#defaults = {
       ...defaults,
@@ -40,10 +45,11 @@ export class Agent {
     };
     this.#compression = contextCompression;
     if (defaults.tools !== undefined) this.#defaults.tools = [...defaults.tools];
-    this.#initialMessages = system === undefined
-      ? []
-      : [{ role: "system", content: [{ type: "text", text: system }] }];
-    this.#messages = copyMessages(this.#initialMessages);
+    this.#system = system;
+    this.#historyFile = historyFile === undefined ? undefined : resolve(historyFile);
+    this.#messages = this.#historyFile === undefined ? [] : loadHistory(this.#historyFile);
+    if (system !== undefined) this.#messages.unshift({ role: "system", content: [{ type: "text", text: system }] });
+    this.#assertComplete(this.#messages);
   }
 
   /** A message snapshot for inspection or persistence; opaque details stay by reference. */
@@ -67,7 +73,9 @@ export class Agent {
   /** Start over with the constructor's system prompt and configuration. */
   reset(): void {
     this.#assertIdle();
-    this.#messages = copyMessages(this.#initialMessages);
+    this.#messages = this.#system === undefined
+      ? []
+      : [{ role: "system", content: [{ type: "text", text: this.#system }] }];
     this.#lastRequest = undefined;
   }
 
@@ -91,6 +99,9 @@ export class Agent {
       if (this.#compression != null) settings.hooks = this.#compressionHooks(settings.hooks, this.#compression);
       const result = await run(settings);
       this.#messages = copyMessages(result.messages);
+      if (this.#historyFile !== undefined && result.stopReason === "completed") {
+        await saveHistory(this.#historyFile, result.messages);
+      }
       return result;
     } finally {
       this.#running = false;

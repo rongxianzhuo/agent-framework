@@ -11,6 +11,8 @@
  * terminal input and event rendering; file tools come from agent-framework/tools.
  *
  * Type at `you>`, or `/exit` to quit.
+ * Completed conversations are saved to examples/history.json and restored on
+ * restart. Delete that file while the example is stopped to start fresh.
  * Ask it to read a text file by its absolute path and summarize it.
  * To inspect an image, configure a vision-capable endpoint/model and give its
  * absolute path. read_image supports PNG, JPEG, GIF and WebP.
@@ -21,6 +23,7 @@
  * effort are fixed below; edit the constants to change them.
  */
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 import { Agent } from "agent-framework";
 import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
@@ -52,6 +55,7 @@ const showThinking = true;
 const agent = new Agent({
   client,
   model,
+  historyFile: fileURLToPath(new URL("./history.json", import.meta.url)),
   tools: [createReadFileTool({ maxBytes: 16 * 1024 }), createReadImageTool(), createWriteFileTool(), createEditFileTool()],
   reasoningEffort,
   system: "You are a helpful assistant. Keep answers short. Use the available tools when needed and do not guess their results. Ask the user for missing information rather than making assumptions.",

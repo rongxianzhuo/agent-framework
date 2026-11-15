@@ -55,6 +55,7 @@ export async function converse(input: AgentInput): Promise<RunResult> {
   const options: AgentOptions = {
     client: fauxClient({ turns: () => ({ text: "ok" }) }),
     model: "m", system: "Be brief.", tools: [tool], hooks, contextCompression: strategy,
+    historyFile: "./history.json",
   };
   const agent = new Agent(options);
   const execution: AgentRunOptions = { maxTurns: 2, signal: new AbortController().signal };

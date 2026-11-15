@@ -110,6 +110,7 @@ step("inspecting the tarball contents", () => {
   const unwanted = /^package\/(test|src|scripts)\/|^package\/(tsconfig.*\.json|vitest\.config\.ts|\.env.*|package-lock\.json)$/;
   for (const file of listing) {
     if (unwanted.test(file)) failures.push(`the tarball contains ${file}, which should not ship`);
+    if (file === "package/examples/history.json") failures.push("the tarball contains local conversation history");
   }
 
   return `${listing.length} files`;
@@ -139,7 +140,7 @@ step("installing into a fresh project", () => {
 const fixtures = join(root, "scripts/consumer");
 cpSync(fixtures, consumer, { recursive: true });
 
-for (const script of ["use-core.mjs", "use-openai.mjs", "use-tools.mjs", "third-party-adapter.mjs"]) {
+for (const script of ["use-core.mjs", "use-history.mjs", "use-openai.mjs", "use-tools.mjs", "third-party-adapter.mjs"]) {
   step(`running ${script}`, () => {
     const output = shell(process.execPath, [join(consumer, script)], { cwd: consumer });
     // The fixtures print their own progress lines; surface them.

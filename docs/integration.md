@@ -13,6 +13,11 @@ to inspect a PNG, JPEG, GIF or WebP file by absolute path. `write_file` can crea
 or overwrite text files. All file tools reject
 relative paths, and the system prompt does not include the current working directory.
 
+The example saves completed conversations to `examples/history.json` and reloads
+them on restart. Try telling it your name, exit with `/exit`, run it again, then
+ask for your name. To start fresh, stop the example and delete the history file.
+This generated file is ignored by Git.
+
 ## What you are getting
 
 A function called `run`. Give it a transcript and a client that can talk to a
@@ -23,7 +28,7 @@ history and reusable configuration. Both are available from `agent-framework`.
 
 Everything else stays yours: the system prompt, what tools exist and what they
 do, how much history fits, which calls need approval, where the transcript is
-stored, what the user sees. The library has no UI, no session storage, no
+stored, what the user sees. Agent offers optional JSON history storage; the library has no UI, no database storage, no
 configuration files and no global state.
 
 It has one dependency: the official `openai` SDK, used by `agent-framework/openai` and
@@ -145,7 +150,49 @@ tool-result `details` are kept by reference so application objects remain usable
 their ownership and serialization stay with the caller. `replaceMessages()` checks
 tool-call/result pairing before accepting history. Concurrent runs or history
 edits during a run are rejected; use separate instances for separate conversations.
-Input, rendering, storage and retry policy remain application responsibilities.
+Input, rendering, storage configuration and retry policy remain application responsibilities.
+
+## JSON history persistence
+
+Pass `historyFile` when constructing an Agent:
+
+```ts
+const agent = new Agent({
+  client,
+  model: "your-model",
+  system: "You are a helpful assistant.",
+  historyFile: "./history.json",
+});
+await agent.run("Hello");
+```
+
+Construction synchronously loads a UTF-8 JSON array of framework messages without
+system messages. The current system prompt is prepended in memory. A missing
+file starts empty; the parent directory must already exist. Relative paths are
+resolved at construction. Invalid JSON or incomplete tool-call/result pairs throw.
+
+After each run with `stopReason: "completed"`, Agent saves the full
+`result.messages` array, excluding system messages, by overwriting the file.
+Each saved message contains only the applicable fields from `role`, `content`,
+`toolCalls`, `toolCallId` and `toolName`. Content blocks (including images and
+thinking signatures) and tool-call arguments remain intact. Usage, model,
+provider, tool details, `stopReason` and `isError` are omitted. Loading infers
+assistant `stopReason` as `toolUse` or `stop` and defaults tool-result `isError`
+to `false`; original error flags are not restored, but error text stays in
+`content`. Older files with extra fields can still be loaded.
+Context compression and
+permanent history replacements are reflected in the next saved snapshot.
+`reset()` and `replaceMessages()` change memory immediately; the file is updated
+only after the next completed run.
+
+Failed, cancelled and turn-limited runs do not write the file. Their messages
+remain in memory and will be included if a later continuation completes.
+Await `agent.run()` to wait for saving; `run_end` fires before the write.
+JSON serialization and filesystem errors reject `agent.run()`, while the
+completed transcript remains available in `agent.messages`. Data must be
+JSON-compatible; standard `JSON.stringify` behavior applies. Writes are ordinary
+file overwrites, without atomic replacement or concurrent-writer coordination.
+Omit `historyFile` for in-memory behavior without file I/O.
 
 ## Image understanding
 
@@ -950,7 +997,7 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 
 ## Deliberately not included
 
-Any UI. Session storage. A permission policy (the hook is the mechanism, the
+Any UI. Database session storage. A permission policy (the hook is the mechanism, the
 decision is yours). Retries above the adapter. Context compaction heuristics. MCP.
 Sub-agents. Orchestration. Every one of these has a place in a real agent, and none
 of them belongs in a library that several different agents import — they would

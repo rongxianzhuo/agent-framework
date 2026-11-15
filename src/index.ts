@@ -7,7 +7,7 @@
  * public by accident.
  *
  * The surface is intentionally small: message types, tool definitions, one
- * `run` function, a conversation-owning `Agent` and a handful of hooks. UI, persistence,
+ * `run` function, a conversation-owning `Agent` with optional JSON history, and hooks. UI, database storage,
  * permissions, orchestration, provider SDKs — belongs to the embedding agent.
  */
 

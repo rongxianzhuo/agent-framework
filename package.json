@@ -37,7 +37,7 @@
     "LICENSE",
     "README.md",
     "docs/integration.md",
-    "examples"
+    "examples/index.mjs"
   ],
   "sideEffects": false,
   "scripts": {
