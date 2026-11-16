@@ -30,7 +30,8 @@ export type AgentInput = string | readonly ContentBlock[];
  */
 export class Agent {
   readonly #defaults: Omit<RunOptions, "messages" | "signal">;
-  readonly #system: string | undefined;
+  /** Mutable: replaceMessages() can install a different prompt or drop it. */
+  #system: string | undefined;
   readonly #compression: ContextCompressionStrategy | null | undefined;
   readonly #historyFile: string | undefined;
   #messages: Message[];
@@ -57,20 +58,73 @@ export class Agent {
     return copyMessages(this.#messages);
   }
 
+  /**
+   * The current system prompt, without the message wrapper.
+   *
+   * `messages` includes it as a leading system message, so this is the other half
+   * of what `replaceMessages()` takes apart. Undefined when there is none.
+   */
+  get system(): string | undefined {
+    return this.#system;
+  }
+
   /** Latest request snapshot, retained across runs; usage may be unknown. */
   get lastRequest(): LastRequestInfo | undefined {
     return this.#lastRequest === undefined ? undefined : structuredClone(this.#lastRequest);
   }
 
-  /** Restore a complete transcript, including any system messages. */
-  replaceMessages(messages: readonly Message[]): void {
+  /**
+   * Restore a conversation: its system prompt and its messages, separately.
+   *
+   * The prompt is required and must not be blank. A conversation always has one,
+   * so there is no "no prompt" state to express here; an empty or whitespace-only
+   * string is rejected rather than silently becoming a prompt that says nothing.
+   *
+   * `messages` must not contain system messages — the prompt is `systemPrompt`
+   * and nothing else, so a transcript carrying its own would be ambiguous.
+   *
+   * Every check runs before any field is written, so a rejected call leaves the
+   * agent exactly as it was. Tool-call/result pairing is checked the same way.
+   */
+  replaceMessages(systemPrompt: string, messages: readonly Message[]): void {
     this.#assertIdle();
-    this.#assertComplete(messages);
-    this.#messages = copyMessages(messages);
+
+    if (typeof systemPrompt !== "string") {
+      throw new TypeError(
+        `replaceMessages() requires a system prompt string; received ${describeValue(systemPrompt)}.`,
+      );
+    }
+    if (systemPrompt.trim() === "") {
+      throw new Error("replaceMessages() requires a non-empty system prompt; the string was blank.");
+    }
+
+    const withSystem = messages.filter((message) => message.role === "system");
+    if (withSystem.length > 0) {
+      throw new Error(
+        "replaceMessages() takes the system prompt as its first argument; " +
+          `the messages array must not contain system messages (found ${withSystem.length}).`,
+      );
+    }
+
+    const next: Message[] = [
+      { role: "system", content: [{ type: "text", text: systemPrompt }] },
+      ...copyMessages(messages),
+    ];
+    this.#assertComplete(next);
+
+    this.#system = systemPrompt;
+    this.#messages = next;
     this.#lastRequest = undefined;
   }
 
-  /** Start over with the constructor's system prompt and configuration. */
+  /**
+   * Start over with the current system prompt and configuration.
+   *
+   * The prompt is configuration, not conversation: a `replaceMessages()` call
+   * that installed a different one stays in effect here. An agent constructed
+   * without a `system` option is the only way to have no prompt at all, and
+   * `replaceMessages()` cannot create that state — it requires one.
+   */
   reset(): void {
     this.#assertIdle();
     this.#messages = this.#system === undefined
@@ -165,3 +219,11 @@ export class Agent {
     }
   }
 }
+
+/** Name a rejected argument's type for an error message, without echoing its value. */
+function describeValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  return typeof value;
+}
+

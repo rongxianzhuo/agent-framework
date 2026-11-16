@@ -66,16 +66,56 @@ describe("Agent", () => {
     const agent = new Agent({ client, model: "test", system: "original system" });
     const other = new Agent({ client, model: "test" });
     const restored: Message[] = [{ role: "user", content: [{ type: "text", text: "restored" }] }];
-    agent.replaceMessages(restored);
+    agent.replaceMessages("original system", restored);
     restored[0]!.content.length = 0;
     const result = await agent.run();
-    result.messages[0]!.content.length = 0;
+    // messages[0] is the system prompt; the restored turn sits after it.
+    result.messages[1]!.content.length = 0;
     const snapshot = agent.messages;
-    snapshot[0]!.content.length = 0;
-    expect(agent.messages[0]?.content).toEqual([{ type: "text", text: "restored" }]);
+    snapshot[1]!.content.length = 0;
+    expect(agent.messages.map(m => m.role)).toEqual(["system", "user", "assistant"]);
+    expect(agent.messages[1]?.content).toEqual([{ type: "text", text: "restored" }]);
     expect(other.messages).toEqual([]);
     agent.reset();
     expect(agent.messages).toEqual([{ role: "system", content: [{ type: "text", text: "original system" }] }]);
+  });
+
+  it("takes the system prompt and the messages separately", async () => {
+    const client = fauxClient({ turns: () => ({ text: "answer" }) });
+    const agent = new Agent({ client, model: "test", system: "original" });
+    const turns: Message[] = [{ role: "user", content: [{ type: "text", text: "restored" }] }];
+
+    // A different prompt replaces the constructor's one rather than joining it.
+    agent.replaceMessages("replacement", turns);
+    expect(agent.system).toBe("replacement");
+    expect(agent.messages.map(m => m.role)).toEqual(["system", "user"]);
+    expect(agent.messages[0]?.content).toEqual([{ type: "text", text: "replacement" }]);
+
+    // A prompt is required and must say something. A blank one is rejected
+    // rather than becoming a prompt that instructs nothing.
+    for (const blank of ["", "   ", "\n\t "]) {
+      expect(() => agent.replaceMessages(blank, turns)).toThrow("non-empty system prompt");
+    }
+    expect(() => agent.replaceMessages(undefined as unknown as string, turns)).toThrow(TypeError);
+    expect(() => agent.replaceMessages(42 as unknown as string, turns)).toThrow("requires a system prompt string");
+
+    // A rejected call changes nothing: the prompt and turns are still the ones
+    // the last successful call installed.
+    expect(agent.system).toBe("replacement");
+    expect(agent.messages.map(m => m.role)).toEqual(["system", "user"]);
+
+    // A transcript carrying its own system message is rejected: the prompt has
+    // one home, and accepting both would leave the caller guessing which wins.
+    expect(() => agent.replaceMessages("x", [
+      { role: "system", content: [{ type: "text", text: "sneaky" }] },
+    ])).toThrow("must not contain system messages");
+    expect(agent.system).toBe("replacement");
+    expect(agent.messages.map(m => m.role)).toEqual(["system", "user"]);
+
+    // The installed prompt is configuration: reset() keeps it.
+    agent.replaceMessages("kept", turns);
+    agent.reset();
+    expect(agent.messages).toEqual([{ role: "system", content: [{ type: "text", text: "kept" }] }]);
   });
 
   it("rejects concurrent runs and history edits while busy", async () => {
@@ -90,7 +130,7 @@ describe("Agent", () => {
     await started;
     await expect(agent.run("two")).rejects.toThrow("already running");
     expect(() => agent.reset()).toThrow("already running");
-    expect(() => agent.replaceMessages([])).toThrow("already running");
+    expect(() => agent.replaceMessages("p", [])).toThrow("already running");
     release();
     await pending;
     await expect(agent.run("three")).resolves.toMatchObject({ stopReason: "completed" });
@@ -122,8 +162,8 @@ describe("Agent", () => {
     await expect(agent.run("next")).rejects.toThrow("replaceMessages()");
     expect(calls).toBe(1);
     expect(client.requests).toHaveLength(1);
-    expect(() => agent.replaceMessages(agent.messages)).toThrow("no result");
-    agent.replaceMessages([...agent.messages, {
+    expect(() => agent.replaceMessages("p", agent.messages)).toThrow("no result");
+    agent.replaceMessages("p", [...agent.messages, {
       role: "toolResult", toolCallId: "pending", toolName: "write",
       content: [{ type: "text", text: "Caller confirmed the write completed." }], isError: false,
     }]);

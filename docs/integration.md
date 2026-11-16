@@ -214,10 +214,23 @@ const agent = new Agent({
 await agent.run("Read a.ts", { onEvent });
 await agent.run("Summarize the file", { onEvent }); // automatically includes history
 
-const saved = agent.messages;
-agent.reset();                  // restores the constructor's system prompt
-agent.replaceMessages(saved);   // restores the full transcript, including system messages
+const saved = agent.messages;      // the saved file: turns only
+const prompt = agent.system;       // "You are a coding agent.", required by the call
+agent.reset();                     // restores the current system prompt
+agent.replaceMessages(prompt, saved);  // puts both halves back
 ```
+
+`agent.messages` is the transcript and `agent.system` is the prompt; together they
+are the whole conversation. `replaceMessages(systemPrompt, messages)` takes them
+as two arguments, so a stored prompt and a stored transcript recombine exactly.
+The prompt is required and must not be blank: a conversation always has one, and
+a whitespace-only string is rejected rather than becoming a prompt that instructs
+nothing. Only an agent constructed without a `system` option has no prompt, and
+`replaceMessages()` cannot install that state. The `messages` argument must not
+contain system messages; a transcript carrying a second prompt is rejected rather
+than silently resolved in favour of one of them. Every check runs before anything
+is written, so a rejected call leaves the agent unchanged — tool-call/result
+pairing included.
 
 Pass a string or an array of content blocks to `agent.run(input, options)`.
 Constructor options supply defaults; per-call execution options such as `signal`,
@@ -262,6 +275,10 @@ resolved at construction. Invalid JSON or incomplete tool-call/result pairs thro
 
 After each run with `stopReason: "completed"`, Agent saves the full
 `result.messages` array, excluding system messages, by overwriting the file.
+The prompt is deliberately not in it: the file holds the turns, and the prompt
+comes from the constructor's `system` option or from `replaceMessages()`. A file
+and a prompt recombine into a conversation, which is why `replaceMessages()` takes
+them as two arguments.
 Each saved message contains only the applicable fields from `role`, `content`,
 `toolCalls`, `toolCallId` and `toolName`. Content blocks (including images and
 thinking signatures) and tool-call arguments remain intact. Usage, model,

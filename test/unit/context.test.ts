@@ -43,7 +43,7 @@ describe("request history replacement", () => {
   it("persists replacement through tool turns, returned results and Agent conversations", async () => {
     const client = fauxClient({ turns: [toolTurn, { text: "done" }, { text: "followup" }] });
     const agent = new Agent({ client, model: "original-model", tools: [tool] });
-    agent.replaceMessages(history());
+    agent.replaceMessages("test prompt", history());
     const result = await agent.run(undefined, { hooks: { onBeforeRequest: async ({ request, turn }) => {
       if (turn !== 1) return;
       return {

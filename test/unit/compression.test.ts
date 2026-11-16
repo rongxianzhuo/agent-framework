@@ -229,7 +229,7 @@ describe("Agent context compression", () => {
     agent.reset();
     expect(agent.lastRequest).toBeUndefined();
     await agent.run("two");
-    agent.replaceMessages(agent.messages);
+    agent.replaceMessages("test prompt", agent.messages);
     expect(agent.lastRequest).toBeUndefined();
     await agent.run("three");
     expect(seen.every(c => c.lastRequest === undefined)).toBe(true);

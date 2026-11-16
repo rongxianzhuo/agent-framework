@@ -63,8 +63,9 @@ export async function converse(input: AgentInput): Promise<RunResult> {
   const latest: LastRequestInfo | undefined = agent.lastRequest;
   if (latest?.usage !== undefined) latest.usage.inputTokens.toFixed();
   const saved: Message[] = agent.messages;
+  const savedSystem: string | undefined = agent.system;
   agent.reset();
-  agent.replaceMessages(saved);
+  if (savedSystem !== undefined) agent.replaceMessages(savedSystem, saved.slice(1));
   return agent.run();
 }
 

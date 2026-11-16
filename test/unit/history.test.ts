@@ -9,9 +9,13 @@ const prefix = resolve(tmpdir(), "agent-framework-history-");
 let directory: string;
 const user = (text: string): Message => ({ role: "user", content: [{ type: "text", text }] });
 const assistant = (text: string): Message => ({ role: "assistant", content: [{ type: "text", text }], toolCalls: [], stopReason: "stop" });
-const stored = (messages: Message[]) => messages.map(message => Object.fromEntries(
-  Object.entries(message).filter(([key]) => !["stopReason", "isError", "usage", "model", "provider", "details"].includes(key)),
-));
+// What a saved file holds: the turns, with only the fields the file keeps.
+// System messages are never written, so they are dropped here too.
+const stored = (messages: Message[]) => messages
+  .filter(message => message.role !== "system")
+  .map(message => Object.fromEntries(
+    Object.entries(message).filter(([key]) => !["stopReason", "isError", "usage", "model", "provider", "details"].includes(key)),
+  ));
 const saved = async (path: string): Promise<Message[]> => JSON.parse(await readFile(path, "utf8")) as Message[];
 
 beforeAll(async () => { directory = await mkdtemp(prefix); });
@@ -196,7 +200,7 @@ describe("Agent JSON history", () => {
     const agent = new Agent({ client: fauxClient({ turns: [{ text: "new answer" }] }), model: "test", system: "system", historyFile: path });
     agent.reset();
     expect(agent.messages.map(m => m.role)).toEqual(["system"]);
-    agent.replaceMessages([user("external context")]);
+    agent.replaceMessages("replacement prompt", [user("external context")]);
     expect(await saved(path)).toEqual(previous);
     await agent.run("new input");
     expect(await saved(path)).toEqual(stored(agent.messages));
