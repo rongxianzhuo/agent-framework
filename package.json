@@ -41,6 +41,7 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src test",
     "test": "vitest run",
