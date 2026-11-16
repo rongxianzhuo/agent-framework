@@ -96,6 +96,42 @@ The URL pins version `0.1.0`. To upgrade, change both the release tag and archiv
 filename to the desired published version, then run `npm install` again and
 commit the updated `package.json` and lockfile in your application.
 
+Installing from the repository itself also works:
+
+```sh
+npm install github:rongxianzhuo/agent-framework
+```
+
+This clones the source and compiles it during install through the package's
+`prepare` script, so it needs no manual `npm run build`. It follows the default
+branch, which moves; pin a tag or commit
+(`github:rongxianzhuo/agent-framework#v0.1.0`) when the build must be repeatable.
+
+## ESM and TypeScript setup
+
+The package is ESM-only. There is no CommonJS entry point, so `require()` fails
+with `ERR_PACKAGE_PATH_NOT_EXPORTED` — use `import`, set `"type": "module"` in a
+JavaScript project, or `await import("agent-framework")` from a CommonJS file.
+
+TypeScript must use a `moduleResolution` that understands `exports` subpaths:
+
+```json
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2022",
+    "types": ["node"]
+  }
+}
+```
+
+`"moduleResolution": "node"` cannot resolve `agent-framework/openai` or
+`agent-framework/tools`, and with `node16`/`nodenext` the project's `package.json`
+also needs `"type": "module"`. `@types/node` is required because the declarations
+reference `AbortSignal` and `fetch`; the `DOM` lib is not needed.
+`docs/integration.md` covers the details and the errors each mistake produces.
+
 ## Usage
 
 For a conversation, create one `Agent` and send it each user input:

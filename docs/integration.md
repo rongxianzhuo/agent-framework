@@ -72,6 +72,71 @@ URL to the desired published version and run `npm install`. Commit the resulting
 URLs pin the selected artifact; installing dependencies again does not select a
 newer framework release automatically.
 
+### The package is ESM-only
+
+`agent-framework` ships ES modules and nothing else. There is no CommonJS entry
+point, and `require("agent-framework")` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+This is a decision, not an oversight: the package has no build step that emits a
+second module format, and a single format keeps the `exports` map honest.
+
+For a JavaScript project, add `"type": "module"` to its `package.json` and use
+`import`. From a CommonJS file, load the package dynamically:
+
+```js
+const { Agent } = await import("agent-framework");
+```
+
+For TypeScript, the compiler must be told to resolve `exports` subpaths. The
+setting that matters is `moduleResolution`; `"node"` (the old default) cannot see
+`agent-framework/openai`, `agent-framework/tools` or the other subpaths and
+reports "Cannot find module":
+
+```json
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2022",
+    "types": ["node"]
+  }
+}
+```
+
+`"module": "esnext"` with `"moduleResolution": "bundler"` also works, and is what
+a project using a bundler or `tsx` usually wants. With `node16`/`nodenext`, the
+consuming `package.json` must also say `"type": "module"`; otherwise TypeScript
+rejects the import with TS1479, because it would have to emit `require` calls for
+an ESM package.
+
+`@types/node` is required, and `"types": ["node"]` is worth setting explicitly:
+the declarations reference `AbortSignal`, `fetch` and `ReadableStream`, so a
+project that pins `lib` to a bare `ES2023` without Node types fails with
+"Cannot find name 'AbortSignal'". The package does not need the `DOM` lib and does
+not ship one.
+
+### Installing from Git
+
+The Release archive is the supported install. Installing straight from the
+repository also works, and is the right way to build against a commit that has not
+been released:
+
+```sh
+npm install github:rongxianzhuo/agent-framework
+```
+
+That form clones the repository and runs its `prepare` script, which compiles
+`src/` into `dist/`. Two consequences: the clone contains source rather than a
+prebuilt artifact, so the install needs the `typescript` devDependency, which npm
+installs for you, and it takes noticeably longer than installing the tarball. The
+result tracks the default branch rather than a fixed version, so a git dependency
+in `package.json` is a moving target — pin a commit or tag
+(`github:rongxianzhuo/agent-framework#v0.1.0`) if the build has to be repeatable.
+
+A `dist/` directory does not exist in the repository itself; it is generated. That
+is why an install that skips `prepare` produces a package whose `main` points at a
+file nobody built, and why the error you see in that case is a module-not-found
+error about `dist/index.js` rather than anything that names the real problem.
+
 ```ts
 import { readFile } from "node:fs/promises";
 import { run, defineTool, textResult } from "agent-framework";
@@ -354,10 +419,16 @@ one response, and a union would force you to narrow and re-assemble before you
 could look at a turn.
 
 ```ts
-const assistant = result.messages.find((m) => m.role === "assistant");
+const assistant = result.messages.filter((m) => m.role === "assistant").at(-1);
 assistant?.content;    // what it said
 assistant?.toolCalls;  // what it wants run — often both are non-empty
 ```
+
+Take the **last** assistant message, not the first. A run that used tools puts
+several assistant messages in the transcript, and the first one is the turn that
+asked for the tool, whose `content` is usually empty. The answer to the user's
+question is the last one. (`findLast` from ES2023 does the same thing in one call;
+the form above works with the `ES2022` target shown earlier.)
 
 **Tool results carry `content` for the model and `details` for you.** The model
 sees a string; your UI sees structured data.
@@ -528,7 +599,7 @@ execute: async (args) => {
 }
 ```
 
-The model sees `read_file failed: /tmp/x does not exist` and can try another path.
+The model sees `Tool "read_file" failed: /tmp/x does not exist` and can try another path.
 You see the failure as an `error` event with `fatal: false` on `onEvent`, if you
 want to log it. Bad arguments do not raise that event — the reason is already in
 the tool result the model is reading, and a model guessing at a schema is not an
@@ -558,6 +629,35 @@ const result = await run({
   providerOptions: {},           // handed to the adapter untouched
 });
 ```
+
+### Events
+
+`onEvent` receives one of these for everything that happens in a run. The loop
+renders nothing, so this is the only way to show progress to a user. Every event
+carries a `type`; the ones about a turn also carry `turn`.
+
+| `type` | Fields | When |
+| --- | --- | --- |
+| `run_start` | `messageCount` | Once, before the first model call. |
+| `turn_start` | `turn` | Before each model call. |
+| `text_delta` | `turn`, `text` | Per streamed piece of the model's answer. |
+| `thinking_delta` | `turn`, `text` | Per streamed piece of reasoning, for models that emit it. |
+| `assistant_message` | `turn`, `message` | Once per model response, with the assembled message — including after every delta has already arrived. |
+| `tool_start` | `turn`, `toolCallId`, `toolName`, `args` | Before a tool runs. Good place to print "reading src/a.ts". |
+| `tool_update` | `toolCallId`, `toolName`, `partial` | When a tool calls `ctx.onUpdate()`. Never sent to the model. |
+| `tool_end` | `toolCallId`, `toolName`, `result`, `durationMs` | After a tool finished, succeeded or failed. |
+| `turn_end` | `turn`, `toolCallCount` | After the tools for a turn finished, or when the model asked for none. |
+| `run_end` | `stopReason`, `usage`, `messages` | Once, last. Carries the finished transcript. |
+| `error` | `error`, `fatal` | On a failure. `fatal: true` means it ended the run; `fatal: false` means a tool failed and the model gets to react. |
+
+Deltas arrive before the `assistant_message` that contains them, so a UI can
+either stream text or wait for the whole message; it does not need both. `onEvent`
+is awaited, so an async handler applies backpressure — but a throwing handler
+aborts the run with its own exception rather than a `RunResult`, so keep UI code
+free of anything that can throw, or catch inside the handler.
+
+`tool_update` is the one event that is not awaited: a slow progress listener must
+not stall a tool that is already running.
 
 The result:
 

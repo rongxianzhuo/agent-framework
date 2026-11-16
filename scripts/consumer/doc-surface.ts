@@ -8,11 +8,15 @@
 import { readFile } from "node:fs/promises";
 
 import {
+  Agent,
   run,
   defineTool,
   textResult,
   jsonResult,
   MessageAccumulator,
+  type AgentEvent,
+  type AgentOptions,
+  type ContextCompressionStrategy,
   type Message,
   type BeforeRequestUpdate,
   type RunHooks,
@@ -25,6 +29,96 @@ import {
 import { openaiClient } from "agent-framework/openai";
 import { fauxClient } from "agent-framework/faux";
 import { runConformance, formatResults, allPassed } from "agent-framework/conformance";
+import {
+  createEditFileTool,
+  createReadFileTool,
+  createReadImageTool,
+  createWriteFileTool,
+  type EditFileArgs,
+  type ReadFileArgs,
+  type WriteFileArgs,
+} from "agent-framework/tools";
+
+// --- Agent: the options and methods the guide documents ---------------------
+
+// The guide's compression section: a strategy is application code, and both
+// methods may be sync or async.
+const strategy: ContextCompressionStrategy = {
+  shouldCompress: ({ lastRequest }) => lastRequest?.usage !== undefined,
+  compress: async ({ messages }) => [...messages],
+};
+
+export function agentOptions(historyFile: string): AgentOptions {
+  return {
+    client: fauxClient({ turns: [{ text: "hello" }] }),
+    model: "gpt-4o-mini",
+    system: "Be brief.", // becomes a leading system message
+    historyFile, // JSON persistence; resolved against the working directory
+    contextCompression: strategy,
+    tools: [read, search],
+    maxTurns: 12,
+    parallelTools: true,
+    maxOutputTokens: 512,
+    temperature: 0.2,
+    reasoningEffort: "low",
+  };
+}
+
+export async function useAgent(historyFile: string): Promise<void> {
+  const agent = new Agent(agentOptions(historyFile));
+
+  // Input is a string or content blocks; omitting it continues the history.
+  await agent.run("Read a.ts");
+  await agent.run([{ type: "text", text: "What changed?" }]);
+  await agent.run();
+
+  const transcript: Message[] = agent.messages; // snapshot, safe to keep
+  agent.replaceMessages(transcript); // validates tool-call/result pairing
+  agent.reset(); // back to the constructor's system prompt
+  console.log(agent.lastRequest?.usage, agent.lastRequest?.model);
+}
+
+// The event table in the guide: every member has to exist and be narrowable.
+export function eventFields(event: AgentEvent): string {
+  switch (event.type) {
+    case "run_start":
+      return `${event.messageCount} messages`;
+    case "turn_start":
+    case "turn_end":
+      return `turn ${event.turn}`;
+    case "text_delta":
+    case "thinking_delta":
+      return event.text;
+    case "assistant_message":
+      return `${event.message.toolCalls.length} calls`;
+    case "tool_start":
+      return `${event.toolName}(${JSON.stringify(event.args)})`;
+    case "tool_update":
+      return event.partial;
+    case "tool_end":
+      return `${event.toolName} ${event.durationMs}ms, error=${event.result.isError}`;
+    case "run_end":
+      return `${event.stopReason} ${event.messages.length}`;
+    case "error":
+      return `${event.error.kind} fatal=${event.fatal}`;
+  }
+}
+
+// --- Built-in file tools ---------------------------------------------------
+
+export const fileTools = [
+  createReadFileTool({ maxBytes: 1024 * 1024 }),
+  createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
+  createWriteFileTool(),
+  createEditFileTool({ timeoutMs: 5_000 }),
+];
+
+// The editor's argument names, and `replace_all`, are documented exactly so.
+const editArgs: EditFileArgs = { file_path: "/a.txt", old_string: "a", new_string: "b", replace_all: true };
+const writeArgs: WriteFileArgs = { path: "/a.txt", content: "hi" };
+const rangeArgs: ReadFileArgs = { path: "/a.txt", offset: 0, limit: 10 };
+export const toolArgs = [editArgs, writeArgs, rangeArgs];
+
 
 // --- Tools ----------------------------------------------------------------
 
