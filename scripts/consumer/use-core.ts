@@ -63,9 +63,8 @@ export async function converse(input: AgentInput): Promise<RunResult> {
   const latest: LastRequestInfo | undefined = agent.lastRequest;
   if (latest?.usage !== undefined) latest.usage.inputTokens.toFixed();
   const saved: Message[] = agent.messages;
-  const savedSystem: string | undefined = agent.system;
   agent.reset();
-  if (savedSystem !== undefined) agent.replaceMessages(savedSystem, saved.slice(1));
+  agent.replaceMessages(agent.system, saved.slice(1));
   return agent.run();
 }
 
@@ -76,7 +75,7 @@ export async function inspectImages(client: LLMClient, model: string, base64: st
   // @ts-expect-error a URL image cannot also carry Base64 data
   const invalid: ImageBlock = { ...inline, url: remote.url };
   void invalid;
-  return new Agent({ client, model }).run([{ type: "text", text: "Compare." }, ...images]);
+  return new Agent({ client, model, system: "Describe images." }).run([{ type: "text", text: "Compare." }, ...images]);
 }
 
 // The core entry point must not carry an adapter.

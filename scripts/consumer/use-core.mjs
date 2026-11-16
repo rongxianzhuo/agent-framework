@@ -84,11 +84,8 @@ await agent.run("My name is Alex.");
 await agent.run("What is my name?");
 if (conversationClient.requests[1]?.messages.length !== 4) failures.push("Agent did not preserve the first exchange");
 const saved = agent.messages;
-const savedSystem = agent.system;
 agent.reset();
-// The prompt and the turns are restored separately; the array holds no system
-// message, and the prompt is whatever the caller passes in its own argument.
-agent.replaceMessages(savedSystem, saved.slice(1));
+agent.replaceMessages(agent.system, saved.slice(1));
 if (agent.messages.length !== 5) failures.push("Agent did not restore the conversation");
 if (agent.system !== "Be brief.") failures.push("Agent did not restore the system prompt");
 
@@ -106,7 +103,7 @@ const compressionClient = fauxClient({ turns: [
   { text: "small context", usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 0 } },
 ] });
 const compressedAgent = new Agent({
-  client: compressionClient, model: "demo",
+  client: compressionClient, model: "demo", system: "Be brief.",
   contextCompression: {
     shouldCompress: ({ lastRequest }) => (lastRequest?.usage?.inputTokens ?? 0) >= 200_000,
     compress: () => {

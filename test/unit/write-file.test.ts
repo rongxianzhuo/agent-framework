@@ -90,7 +90,7 @@ describe("write_file", () => {
 
   it("works through Agent and lets a subsequent tool call read the new contents", async () => {
     const path = join(directory, "agent.txt");
-    const agent = new Agent({
+    const agent = new Agent({ system: "test prompt",
       client: fauxClient({ turns: [
         { toolCalls: [{ id: "write", name: "write_file", args: { path, content: "Agent wrote this." } }] },
         { toolCalls: [{ id: "read", name: "read_file", args: { path } }] },

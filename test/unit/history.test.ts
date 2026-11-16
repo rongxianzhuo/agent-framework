@@ -46,7 +46,7 @@ describe("Agent JSON history", () => {
 
   it("creates a missing history file only after a completed run", async () => {
     const path = join(directory, "new.json");
-    const agent = new Agent({ client: fauxClient({ turns: [{ text: "answer" }] }), model: "test", historyFile: path });
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [{ text: "answer" }] }), model: "test", historyFile: path });
     await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
     await agent.run("question", { onEvent: async event => {
       if (event.type === "text_delta" || event.type === "run_end") {
@@ -59,8 +59,8 @@ describe("Agent JSON history", () => {
   it("supports relative paths and UTF-8 BOMs", async () => {
     const path = join(directory, "bom.json");
     await writeFile(path, "\uFEFF" + JSON.stringify([user("old"), assistant("answer")]));
-    const agent = new Agent({ client: fauxClient({ turns: [] }), model: "test", historyFile: relative(process.cwd(), path) });
-    expect(agent.messages).toHaveLength(2);
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [] }), model: "test", historyFile: relative(process.cwd(), path) });
+    expect(agent.messages).toHaveLength(3);
   });
 
   it.each([
@@ -72,7 +72,7 @@ describe("Agent JSON history", () => {
   ])("rejects malformed or incomplete initial history: %s", async content => {
     const path = join(directory, "invalid.json");
     await writeFile(path, content);
-    expect(() => new Agent({ client: fauxClient({ turns: [] }), model: "test", historyFile: path })).toThrow();
+    expect(() => new Agent({ system: "test prompt", client: fauxClient({ turns: [] }), model: "test", historyFile: path })).toThrow();
     expect(await readFile(path, "utf8")).toBe(content);
   });
 
@@ -80,7 +80,7 @@ describe("Agent JSON history", () => {
     const path = join(directory, "retry.json");
     const initial = [user("prior"), assistant("prior answer")];
     await writeFile(path, JSON.stringify(initial));
-    const agent = new Agent({ client: fauxClient({ turns: [
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [
       { error: { kind: "network", message: "offline" } }, { text: "recovered" },
     ] }), model: "test", historyFile: path });
     expect((await agent.run("question")).stopReason).toBe("error");
@@ -93,7 +93,7 @@ describe("Agent JSON history", () => {
   it("waits through maxTurns and persists all tool messages only after continuation completes", async () => {
     const path = join(directory, "tool.json");
     const tool = defineTool({ name: "read", description: "Read.", parameters: { type: "object" }, execute: () => textResult("contents") });
-    const agent = new Agent({ client: fauxClient({ turns: [
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [
       { toolCalls: [{ id: "c1", name: "read", args: {} }] }, { text: "final answer" },
     ] }), model: "test", historyFile: path, tools: [tool] });
     expect((await agent.run("read", { maxTurns: 1 })).stopReason).toBe("maxTurns");
@@ -105,7 +105,7 @@ describe("Agent JSON history", () => {
   it("does not persist an aborted run or listener exception", async () => {
     const path = join(directory, "abort.json");
     await writeFile(path, "[]");
-    const agent = new Agent({ client: fauxClient({ turns: [{ text: "answer" }] }), model: "test", historyFile: path });
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [{ text: "answer" }] }), model: "test", historyFile: path });
     const controller = new AbortController();
     controller.abort();
     expect((await agent.run("cancel", { signal: controller.signal })).stopReason).toBe("aborted");
@@ -126,7 +126,7 @@ describe("Agent JSON history", () => {
       { text: "both images", usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25, cacheReadTokens: 0, cacheWriteTokens: 0 } },
       { text: "continued" },
     ] });
-    const agent = new Agent({ client, model: "test", historyFile: path, tools: [tool] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", historyFile: path, tools: [tool] });
     await agent.run([{ type: "image", url: "https://example.com/image.png" }], { onEvent: async event => {
       if (event.type === "tool_end" || event.type === "run_end") expect(await saved(path)).toEqual([]);
     } });
@@ -140,10 +140,10 @@ describe("Agent JSON history", () => {
     expect(agent.messages.at(-1)).toHaveProperty("usage");
     expect(archive.at(-1)).not.toHaveProperty("usage");
     expect(archive[3]).toMatchObject({ toolCallId: "c2" });
-    const restored = new Agent({ client, model: "test", historyFile: path });
+    const restored = new Agent({ system: "test prompt", client, model: "test", historyFile: path });
     expect(stored(restored.messages)).toEqual(archive);
-    expect(restored.messages[1]).toHaveProperty("stopReason", "toolUse");
-    expect(restored.messages[2]).toHaveProperty("isError", false);
+    expect(restored.messages[2]).toHaveProperty("stopReason", "toolUse");
+    expect(restored.messages[3]).toHaveProperty("isError", false);
     expect(restored.messages.at(-1)).toHaveProperty("stopReason", "stop");
     expect((await restored.run("continue")).stopReason).toBe("completed");
     expect(client.requests.at(-1)?.messages).toEqual([...restored.messages.slice(0, -2), user("continue")]);
@@ -171,9 +171,9 @@ describe("Agent JSON history", () => {
     const parent = join(directory, "create-parent-later");
     const path = join(parent, "history.json");
     const client = fauxClient({ turns: [{ text: "answer" }, { text: "next answer" }] });
-    const agent = new Agent({ client, model: "test", historyFile: path });
+    const agent = new Agent({ system: "test prompt", client, model: "test", historyFile: path });
     await expect(agent.run("question")).rejects.toMatchObject({ code: "ENOENT" });
-    expect(agent.messages).toHaveLength(2);
+    expect(agent.messages).toHaveLength(3);
     await mkdir(parent);
     await agent.run("next question");
     expect(await saved(path)).toEqual(stored(agent.messages));
@@ -185,7 +185,7 @@ describe("Agent JSON history", () => {
     const path = join(directory, "serialization.json");
     await writeFile(path, "[]");
     const tool = defineTool({ name: "read", description: "Read.", parameters: { type: "object" }, execute: () => textResult("ok", { value: 1n }) });
-    const agent = new Agent({ client: fauxClient({ turns: [
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [
       { toolCalls: [{ id: "c1", name: "read", args: {} }] }, { text: "done" },
     ] }), model: "test", historyFile: path, tools: [tool] });
     expect((await agent.run("read")).stopReason).toBe("completed");

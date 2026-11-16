@@ -82,7 +82,7 @@ describe("built-in file readers", () => {
   it("lets the model correct an unpaired range and continue the tool loop", async () => {
     const path = join(directory, "range-agent.txt");
     await writeFile(path, "one\ntwo\nthree");
-    const agent = new Agent({
+    const agent = new Agent({ system: "test prompt",
       client: fauxClient({ turns: [
         { toolCalls: [{ id: "bad", name: "read_file", args: { path, offset: 1 } }] },
         { toolCalls: [{ id: "good", name: "read_file", args: { path, offset: 1, limit: 1 } }] },
@@ -249,7 +249,7 @@ describe("built-in file readers", () => {
   it("works in an Agent alongside other tools", async () => {
     const textPath = join(directory, "text.txt");
     const imagePath = join(directory, "picture.bin");
-    const agent = new Agent({
+    const agent = new Agent({ system: "test prompt",
       client: fauxClient({ turns: [
         { toolCalls: [
           { id: "text", name: "read_file", args: { path: textPath } },

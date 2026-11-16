@@ -223,14 +223,13 @@ agent.replaceMessages(prompt, saved);  // puts both halves back
 `agent.messages` is the transcript and `agent.system` is the prompt; together they
 are the whole conversation. `replaceMessages(systemPrompt, messages)` takes them
 as two arguments, so a stored prompt and a stored transcript recombine exactly.
-The prompt is required and must not be blank: a conversation always has one, and
-a whitespace-only string is rejected rather than becoming a prompt that instructs
-nothing. Only an agent constructed without a `system` option has no prompt, and
-`replaceMessages()` cannot install that state. The `messages` argument must not
-contain system messages; a transcript carrying a second prompt is rejected rather
-than silently resolved in favour of one of them. Every check runs before anything
-is written, so a rejected call leaves the agent unchanged — tool-call/result
-pairing included.
+The prompt is required by both the constructor and `replaceMessages()`, and must
+be a string in both; it may be empty, which is a conversation that says nothing
+up front rather than an error. The `messages` argument must not contain system
+messages; a transcript carrying a second prompt is rejected rather than silently
+resolved in favour of one of them. Every check runs before anything is written,
+so a rejected call leaves the agent unchanged — tool-call/result pairing
+included.
 
 Pass a string or an array of content blocks to `agent.run(input, options)`.
 Constructor options supply defaults; per-call execution options such as `signal`,
@@ -310,7 +309,7 @@ user content, so no extra vision-specific execution API is needed:
 import { readFile } from "node:fs/promises";
 import { Agent } from "agent-framework";
 
-const agent = new Agent({ client, model: "your-vision-model" });
+const agent = new Agent({ client, model: "your-vision-model", system: "Describe images accurately." });
 const imageBase64 = (await readFile("/absolute/path/photo.png")).toString("base64");
 
 await agent.run([
@@ -379,7 +378,7 @@ const strategy: ContextCompressionStrategy = {
   compress: ({ messages, signal }) => summarizeHistory(messages, signal),
 };
 
-const agent = new Agent({ client, model: "gpt-4o-mini", contextCompression: strategy });
+const agent = new Agent({ client, model: "gpt-4o-mini", system: "Be helpful.", contextCompression: strategy });
 await agent.run("Hello");
 console.log(agent.lastRequest?.usage); // usage for the latest model request only
 ```
@@ -486,6 +485,7 @@ import { createEditFileTool, createReadFileTool, createReadImageTool, createWrit
 const agent = new Agent({
   client,
   model,
+  system: "You are a coding agent.",
   tools: [
     createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
     createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),

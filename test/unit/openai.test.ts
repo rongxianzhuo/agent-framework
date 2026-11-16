@@ -153,19 +153,19 @@ describe("request", () => {
       name: "read_file", description: "Read text.", parameters: { type: "object" },
       execute: () => textResult("notes"),
     });
-    const agent = new Agent({ client: c, model: "vision-test", tools: [imageTool, textTool] });
+    const agent = new Agent({ system: "test prompt", client: c, model: "vision-test", tools: [imageTool, textTool] });
     expect((await agent.run("Read and describe.")).stopReason).toBe("completed");
     await agent.run("More detail?");
     const second = (calls[1]!.body as { messages: Record<string, unknown>[] }).messages;
-    expect(second.map(m => m["role"])).toEqual(["user", "assistant", "tool", "tool", "user"]);
-    expect(second[2]).toMatchObject({ tool_call_id: "image1" });
-    expect(second[3]).toMatchObject({ tool_call_id: "text1", content: "notes" });
-    expect(second[4]).toMatchObject({ content: [
+    expect(second.map(m => m["role"])).toEqual(["system", "user", "assistant", "tool", "tool", "user"]);
+    expect(second[3]).toMatchObject({ tool_call_id: "image1" });
+    expect(second[4]).toMatchObject({ tool_call_id: "text1", content: "notes" });
+    expect(second[5]).toMatchObject({ content: [
       { type: "text", text: 'Output from tool "read_image" (call "image1"):' },
       { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
     ] });
     const third = (calls[2]!.body as { messages: Record<string, unknown>[] }).messages;
-    expect(third.map(m => m["role"])).toEqual(["user", "assistant", "tool", "tool", "user", "assistant", "user"]);
+    expect(third.map(m => m["role"])).toEqual(["system", "user", "assistant", "tool", "tool", "user", "assistant", "user"]);
     expect(agent.messages.filter(m => m.role === "user")).toHaveLength(2);
     expect(agent.messages.find(m => m.role === "toolResult")?.content).toEqual([
       { type: "image", mimeType: "image/png", data: "AAAA" },
@@ -183,7 +183,7 @@ describe("request", () => {
       { type: "image", url: "https://images.example.test/one.png" },
       { type: "image", mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" },
     ];
-    const agent = new Agent({ client: c, model: "vision-test" });
+    const agent = new Agent({ system: "test prompt", client: c, model: "vision-test" });
     expect((await agent.run(content)).stopReason).toBe("completed");
     expect((await agent.run("How do they differ?")).stopReason).toBe("completed");
     const expected = [
@@ -193,11 +193,11 @@ describe("request", () => {
     ];
     for (const call of calls) {
       expect(call.url).toBe("https://example.test/v1/chat/completions");
-      expect((call.body as { messages: unknown[] }).messages[0]).toEqual({ role: "user", content: expected });
+      expect((call.body as { messages: unknown[] }).messages[1]).toEqual({ role: "user", content: expected });
     }
     expect(calls).toHaveLength(2);
-    expect(agent.messages[0]?.content).toEqual(content);
-    expect((calls[1]!.body as { messages: unknown[] }).messages).toHaveLength(3);
+    expect(agent.messages[1]?.content).toEqual(content);
+    expect((calls[1]!.body as { messages: unknown[] }).messages).toHaveLength(4);
   });
 
   it("posts to /chat/completions with bearer auth and a streaming body", async () => {

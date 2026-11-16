@@ -9,7 +9,7 @@ import { resolve } from "node:path";
 
 /** Defaults for one conversation, with optional JSON history persistence. */
 export interface AgentOptions extends Omit<RunOptions, "messages" | "signal"> {
-  system?: string;
+  system: string;
   /** Omit or set null to disable automatic context compression. */
   contextCompression?: ContextCompressionStrategy | null;
   /** Load history and save the full non-system transcript after each completed run. */
@@ -30,8 +30,7 @@ export type AgentInput = string | readonly ContentBlock[];
  */
 export class Agent {
   readonly #defaults: Omit<RunOptions, "messages" | "signal">;
-  /** Mutable: replaceMessages() can install a different prompt or drop it. */
-  #system: string | undefined;
+  #system: string;
   readonly #compression: ContextCompressionStrategy | null | undefined;
   readonly #historyFile: string | undefined;
   #messages: Message[];
@@ -39,6 +38,7 @@ export class Agent {
   #running = false;
 
   constructor({ system, contextCompression, historyFile, ...defaults }: AgentOptions) {
+    const prompt = requireSystemString(system, "new Agent()");
     const client = defaults.client;
     this.#defaults = {
       ...defaults,
@@ -46,10 +46,10 @@ export class Agent {
     };
     this.#compression = contextCompression;
     if (defaults.tools !== undefined) this.#defaults.tools = [...defaults.tools];
-    this.#system = system;
+    this.#system = prompt;
     this.#historyFile = historyFile === undefined ? undefined : resolve(historyFile);
     this.#messages = this.#historyFile === undefined ? [] : loadHistory(this.#historyFile);
-    if (system !== undefined) this.#messages.unshift({ role: "system", content: [{ type: "text", text: system }] });
+    this.#messages.unshift({ role: "system", content: [{ type: "text", text: prompt }] });
     this.#assertComplete(this.#messages);
   }
 
@@ -62,9 +62,9 @@ export class Agent {
    * The current system prompt, without the message wrapper.
    *
    * `messages` includes it as a leading system message, so this is the other half
-   * of what `replaceMessages()` takes apart. Undefined when there is none.
+   * of what `replaceMessages()` takes apart.
    */
-  get system(): string | undefined {
+  get system(): string {
     return this.#system;
   }
 
@@ -76,9 +76,8 @@ export class Agent {
   /**
    * Restore a conversation: its system prompt and its messages, separately.
    *
-   * The prompt is required and must not be blank. A conversation always has one,
-   * so there is no "no prompt" state to express here; an empty or whitespace-only
-   * string is rejected rather than silently becoming a prompt that says nothing.
+   * The prompt is required and must be a string, but it may be empty: an empty
+   * prompt is a conversation that says nothing up front, not a mistake.
    *
    * `messages` must not contain system messages — the prompt is `systemPrompt`
    * and nothing else, so a transcript carrying its own would be ambiguous.
@@ -88,15 +87,7 @@ export class Agent {
    */
   replaceMessages(systemPrompt: string, messages: readonly Message[]): void {
     this.#assertIdle();
-
-    if (typeof systemPrompt !== "string") {
-      throw new TypeError(
-        `replaceMessages() requires a system prompt string; received ${describeValue(systemPrompt)}.`,
-      );
-    }
-    if (systemPrompt.trim() === "") {
-      throw new Error("replaceMessages() requires a non-empty system prompt; the string was blank.");
-    }
+    const prompt = requireSystemString(systemPrompt, "replaceMessages()");
 
     const withSystem = messages.filter((message) => message.role === "system");
     if (withSystem.length > 0) {
@@ -107,12 +98,12 @@ export class Agent {
     }
 
     const next: Message[] = [
-      { role: "system", content: [{ type: "text", text: systemPrompt }] },
+      { role: "system", content: [{ type: "text", text: prompt }] },
       ...copyMessages(messages),
     ];
     this.#assertComplete(next);
 
-    this.#system = systemPrompt;
+    this.#system = prompt;
     this.#messages = next;
     this.#lastRequest = undefined;
   }
@@ -121,15 +112,11 @@ export class Agent {
    * Start over with the current system prompt and configuration.
    *
    * The prompt is configuration, not conversation: a `replaceMessages()` call
-   * that installed a different one stays in effect here. An agent constructed
-   * without a `system` option is the only way to have no prompt at all, and
-   * `replaceMessages()` cannot create that state — it requires one.
+   * that installed a different one stays in effect here.
    */
   reset(): void {
     this.#assertIdle();
-    this.#messages = this.#system === undefined
-      ? []
-      : [{ role: "system", content: [{ type: "text", text: this.#system }] }];
+    this.#messages = [{ role: "system", content: [{ type: "text", text: this.#system }] }];
     this.#lastRequest = undefined;
   }
 
@@ -225,5 +212,12 @@ function describeValue(value: unknown): string {
   if (value === null) return "null";
   if (value === undefined) return "undefined";
   return typeof value;
+}
+
+function requireSystemString(value: unknown, caller: string): string {
+  if (typeof value !== "string") {
+    throw new TypeError(`${caller} requires a system prompt string; received ${describeValue(value)}.`);
+  }
+  return value;
 }
 

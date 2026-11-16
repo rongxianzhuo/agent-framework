@@ -132,7 +132,7 @@ describe("edit_file", () => {
   it("lets an Agent recover from an ambiguous edit and read back the replacement", async () => {
     const file_path = join(directory, "agent.txt");
     await writeFile(file_path, "old old");
-    const agent = new Agent({
+    const agent = new Agent({ system: "test prompt",
       client: fauxClient({ turns: [
         { toolCalls: [{ id: "bad", name: "edit_file", args: { file_path, old_string: "old", new_string: "new" } }] },
         { toolCalls: [{ id: "good", name: "edit_file", args: { file_path, old_string: "old", new_string: "new", replace_all: true } }] },

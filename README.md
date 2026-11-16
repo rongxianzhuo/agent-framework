@@ -219,6 +219,7 @@ import { createEditFileTool, createReadFileTool, createReadImageTool, createWrit
 const agent = new Agent({
   client,
   model,
+  system: "You are a coding agent.",
   tools: [
     createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
     createReadImageTool({ timeoutMs: 10_000 }),
@@ -291,6 +292,7 @@ for followup questions and can be removed by your context compression policy.
 const agent = new Agent({
   client,
   model: "gpt-4o-mini",
+  system: "Be helpful.",
   contextCompression: {
     shouldCompress: ({ lastRequest }) => {
       const usage = lastRequest?.usage;

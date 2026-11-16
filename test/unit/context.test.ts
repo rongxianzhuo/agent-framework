@@ -42,7 +42,7 @@ describe("request history replacement", () => {
 
   it("persists replacement through tool turns, returned results and Agent conversations", async () => {
     const client = fauxClient({ turns: [toolTurn, { text: "done" }, { text: "followup" }] });
-    const agent = new Agent({ client, model: "original-model", tools: [tool] });
+    const agent = new Agent({ system: "test prompt", client, model: "original-model", tools: [tool] });
     agent.replaceMessages("test prompt", history());
     const result = await agent.run(undefined, { hooks: { onBeforeRequest: async ({ request, turn }) => {
       if (turn !== 1) return;
@@ -156,7 +156,7 @@ describe("request history replacement", () => {
 
   it("keeps a committed replacement even if the subsequent model call fails", async () => {
     const client = fauxClient({ turns: [{ error: { kind: "network", message: "offline" } }] });
-    const agent = new Agent({ client, model: "test" });
+    const agent = new Agent({ system: "test prompt", client, model: "test" });
     const result = await agent.run("old", { hooks: { onBeforeRequest: ({ request }) => ({
       request: { ...request, messages: [user("summary")] }, replaceHistory: true,
     }) } });

@@ -18,12 +18,12 @@ assert.equal((await agent.run("New question")).stopReason, "completed");
 const archive = JSON.parse(await readFile(historyFile, "utf8"));
 assert.equal(archive.length, 4);
 assert.ok(archive.every(message => message.role !== "system"));
-const restored = new Agent({ client: fauxClient({ turns: [] }), model: "test", historyFile });
-assert.deepEqual(restored.messages.map(({ role, content }) => ({ role, content })),
+const restored = new Agent({ client: fauxClient({ turns: [] }), model: "test", system: "Never archive this prompt.", historyFile });
+assert.deepEqual(restored.messages.slice(1).map(({ role, content }) => ({ role, content })),
   archive.map(({ role, content }) => ({ role, content })));
 assert.equal(restored.messages.at(-1).stopReason, "stop");
 assert.ok(archive.every(message => Object.keys(message).every(key =>
   ["role", "content", "toolCalls", "toolCallId", "toolName"].includes(key))));
 await writeFile(historyFile, "invalid JSON");
-assert.throws(() => new Agent({ client: fauxClient({ turns: [] }), model: "test", historyFile }), SyntaxError);
+assert.throws(() => new Agent({ client: fauxClient({ turns: [] }), model: "test", system: "p", historyFile }), SyntaxError);
 console.log("  history consumer: passed");

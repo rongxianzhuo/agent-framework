@@ -73,10 +73,7 @@ export async function useAgent(historyFile: string): Promise<void> {
   await agent.run();
 
   const transcript: Message[] = agent.messages; // snapshot, safe to keep
-  const prompt: string | undefined = agent.system; // the prompt, unwrapped
-  // An agent built without `system` has no prompt, and replaceMessages() cannot
-  // restore that state: it requires one. Narrow before calling.
-  if (prompt !== undefined) agent.replaceMessages(prompt, transcript.slice(1));
+  agent.replaceMessages(agent.system, transcript.slice(1));
   agent.reset(); // back to the current system prompt
   console.log(agent.lastRequest?.usage, agent.lastRequest?.model);
 }

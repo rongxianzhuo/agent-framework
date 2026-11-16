@@ -20,6 +20,7 @@ const agent = new Agent({
     { text: "Done." },
   ] }),
   model: "test",
+  system: "Read files when asked.",
   tools: [createReadFileTool({ name: "open_text", timeoutMs: 1000 }), createReadImageTool()],
 });
 const result = await agent.run("Read these files.");
