@@ -72,6 +72,12 @@ URL to the desired published version and run `npm install`. Commit the resulting
 URLs pin the selected artifact; installing dependencies again does not select a
 newer framework release automatically.
 
+That is enough to install. The package is ESM-only, so the project also needs
+`"type": "module"` in its `package.json` (or a `.mjs` file extension), and a
+TypeScript project needs the compiler settings in the next two sections. Read
+them now if the import does not resolve; otherwise skip to the example at the end
+of this section.
+
 ### The package is ESM-only
 
 `agent-framework` ships ES modules and nothing else. There is no CommonJS entry
@@ -175,11 +181,19 @@ const result = await run({
   },
 });
 
-await save(result.messages); // anywhere you like
+// `result.messages` is the whole transcript. Write it wherever you keep state —
+// JSON on disk, a database row, a value in your UI's state store. `run` itself
+// keeps nothing between calls.
+const answer = result.messages.filter((m) => m.role === "assistant").at(-1);
+console.log("\n\n" + (answer?.content.find((b) => b.type === "text")?.text ?? "(no text)"));
 ```
 
-Node 22 or later. TypeScript projects need `@types/node` — the public types use
-`AbortSignal`, `ReadableStream` and `fetch`, and no `DOM` lib is required.
+That is a complete program: it installs, calls a model, runs a tool, streams the
+output, and prints the final answer. Everything below explains the pieces.
+
+Requires Node.js 22 or later. TypeScript projects need `@types/node` — the public
+types use `AbortSignal`, `ReadableStream` and `fetch`, and no `DOM` lib is
+required.
 
 ## Stateful conversations with Agent
 
