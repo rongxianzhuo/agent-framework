@@ -135,8 +135,12 @@ That form clones the repository and runs its `prepare` script, which compiles
 prebuilt artifact, so the install needs the `typescript` devDependency, which npm
 installs for you, and it takes noticeably longer than installing the tarball. The
 result tracks the default branch rather than a fixed version, so a git dependency
-in `package.json` is a moving target — pin a commit or tag
-(`github:rongxianzhuo/agent-framework#v0.1.0`) if the build has to be repeatable.
+in `package.json` is a moving target — pin a commit if the build has to be
+repeatable (`github:rongxianzhuo/agent-framework#<commit>`).
+
+Pin a commit, not `v0.1.0`. That tag predates the `prepare` script, so it
+installs source that is never compiled and fails exactly as described below.
+Releases published after `v0.1.1` are safe to pin.
 
 A `dist/` directory does not exist in the repository itself; it is generated. That
 is why an install that skips `prepare` produces a package whose `main` points at a

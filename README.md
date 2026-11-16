@@ -104,8 +104,10 @@ npm install github:rongxianzhuo/agent-framework
 
 This clones the source and compiles it during install through the package's
 `prepare` script, so it needs no manual `npm run build`. It follows the default
-branch, which moves; pin a tag or commit
-(`github:rongxianzhuo/agent-framework#v0.1.0`) when the build must be repeatable.
+branch, which moves; pin a commit
+(`github:rongxianzhuo/agent-framework#<commit>`) when the build must be
+repeatable. Do not pin `v0.1.0`: that tag predates the `prepare` script and
+installs uncompiled source.
 
 ## ESM and TypeScript setup
 
