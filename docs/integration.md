@@ -137,6 +137,12 @@ is why an install that skips `prepare` produces a package whose `main` points at
 file nobody built, and why the error you see in that case is a module-not-found
 error about `dist/index.js` rather than anything that names the real problem.
 
+Do not install the repository's source archive
+(`https://github.com/rongxianzhuo/agent-framework/archive/refs/tags/v0.1.0.tar.gz`).
+It looks interchangeable with the Release archive and is not: npm runs `prepare`
+for git dependencies but not for tarball dependencies, so nothing is compiled and
+the install fails the same way. Use the Release URL or `github:`.
+
 ```ts
 import { readFile } from "node:fs/promises";
 import { run, defineTool, textResult } from "agent-framework";
