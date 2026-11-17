@@ -41,36 +41,52 @@ hand.
 ## Install and run
 
 Requires Node.js 22 or later. In the root of the project that will use the
-framework (where that project's `package.json` lives), install the prebuilt
-GitHub Release archive:
+framework (where that project's `package.json` lives), install it from the
+repository:
 
 ```sh
-npm install https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz
+npm install github:rongxianzhuo/agent-framework
 ```
 
-This automatically records the dependency in the consuming project's
-`package.json` and updates its lockfile. You can instead merge the following
-entry into your existing `dependencies` and then run `npm install`:
+This clones the source and runs the package's `prepare` script, which compiles
+`src/` into `dist/`, so there is no build step for you to run afterwards. The
+install records the dependency in your project's `package.json` and updates its
+lockfile. You can instead merge the following entry into your existing
+`dependencies` and then run `npm install`:
 
 ```json
 {
   "dependencies": {
-    "agent-framework": "https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz"
+    "agent-framework": "github:rongxianzhuo/agent-framework"
   }
 }
 ```
 
-Use either the URL install command or the manual dependency entry; both produce
-the same installation. Keep the rest of your application's existing configuration.
-The archive includes `dist` and type declarations, so consumers do not need this
-repository's source, build commands or `npm pack`. The installed package is named
-`agent-framework`; use normal package imports, not the download URL in code.
+Use either the install command or the manual dependency entry; both produce the
+same installation. Keep the rest of your application's existing configuration.
+The installed package is named `agent-framework`; use normal package imports, not
+the repository URL in code.
 
-To upgrade, update both `v0.1.0` and `agent-framework-0.1.0.tgz` in the dependency
-URL to the desired published version and run `npm install`. Commit the resulting
-`package.json` and lockfile changes in the consuming project. Versioned Release
-URLs pin the selected artifact; installing dependencies again does not select a
-newer framework release automatically.
+The install compiles source, which has three consequences worth knowing before
+you run it. It needs the `typescript` devDependency, which npm downloads from the
+registry — a fully offline install fails with `ENOTCACHED`. It takes roughly
+twenty seconds rather than a few. And it executes the package's build script, so
+an environment that disables install scripts cannot use this dependency; npm runs
+`prepare` for git dependencies regardless of `--ignore-scripts`.
+
+The dependency follows the default branch, but the lockfile records the specific
+commit that was installed. A plain `npm install` will not move it: to upgrade, run
+the install command again with the package name so npm re-resolves it:
+
+```sh
+npm install agent-framework@github:rongxianzhuo/agent-framework
+```
+
+Commit the resulting `package.json` and lockfile changes. To pin a commit
+explicitly, use `github:rongxianzhuo/agent-framework#<commit>`; the lockfile then
+contains it from the first install, and the dependency is repeatable in
+`package.json` as well. Do not pin `v0.1.0` — it predates the `prepare` script, so
+it installs uncompiled source and fails on first import.
 
 That is enough to install. The package is ESM-only, so the project also needs
 `"type": "module"` in its `package.json` (or a `.mjs` file extension), and a
@@ -120,39 +136,6 @@ project that pins `lib` to a bare `ES2023` without Node types fails with
 "Cannot find name 'AbortSignal'". The package does not need the `DOM` lib and does
 not ship one.
 
-### Installing from Git
-
-The Release archive is the supported install. Installing straight from the
-repository also works, and is the right way to build against a commit that has not
-been released:
-
-```sh
-npm install github:rongxianzhuo/agent-framework
-```
-
-That form clones the repository and runs its `prepare` script, which compiles
-`src/` into `dist/`. Two consequences: the clone contains source rather than a
-prebuilt artifact, so the install needs the `typescript` devDependency, which npm
-installs for you, and it takes noticeably longer than installing the tarball. The
-result tracks the default branch rather than a fixed version, so a git dependency
-in `package.json` is a moving target — pin a commit if the build has to be
-repeatable (`github:rongxianzhuo/agent-framework#<commit>`).
-
-Pin a commit, not `v0.1.0`. That tag predates the `prepare` script, so it
-installs source that is never compiled and fails exactly as described below.
-Releases published after `v0.1.1` are safe to pin.
-
-A `dist/` directory does not exist in the repository itself; it is generated. That
-is why an install that skips `prepare` produces a package whose `main` points at a
-file nobody built, and why the error you see in that case is a module-not-found
-error about `dist/index.js` rather than anything that names the real problem.
-
-Do not install the repository's source archive
-(`https://github.com/rongxianzhuo/agent-framework/archive/refs/tags/v0.1.0.tar.gz`).
-It looks interchangeable with the Release archive and is not: npm runs `prepare`
-for git dependencies but not for tarball dependencies, so nothing is compiled and
-the install fails the same way. Use the Release URL or `github:`.
-
 ```ts
 import { readFile } from "node:fs/promises";
 import { run, defineTool, textResult } from "agent-framework";
@@ -198,6 +181,22 @@ output, and prints the final answer. Everything below explains the pieces.
 Requires Node.js 22 or later. TypeScript projects need `@types/node` — the public
 types use `AbortSignal`, `ReadableStream` and `fetch`, and no `DOM` lib is
 required.
+
+### If the import fails with a missing dist file
+
+A `dist/` directory does not exist in the repository itself; it is generated. That
+is why an install that skips `prepare` produces a package whose `main` points at
+a file nobody built, and why the error you see in that case is a module-not-found
+error about `dist/index.js` rather than anything that names the real problem.
+
+The install command above avoids that, because npm runs `prepare` for git
+dependencies. The common way to lose it is to install a tarball URL instead — the
+repository's source archive
+(`https://github.com/rongxianzhuo/agent-framework/archive/refs/tags/v0.1.0.tar.gz`)
+or any `.tar.gz` built from the source. npm does not run `prepare` for tarball
+dependencies, so nothing is compiled. If you switched an existing dependency to
+such a URL, delete the `node_modules` entry and its lockfile record and reinstall
+with the `github:` form.
 
 ## Stateful conversations with Agent
 
@@ -1129,8 +1128,8 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`details` is not sent to the model.** It is for you. Nothing in it reaches the
   provider, so it is a safe place for structured data, but it is also not a place
   the model can read.
-- **The SDK is installed even if you never touch it.** Installing the Release
-  archive also puts `openai` (~35 MB) in `node_modules`. Nothing loads it unless you import
+- **The SDK is installed even if you never touch it.** Installing the package
+  also puts `openai` (~35 MB) in `node_modules`. Nothing loads it unless you import
   `agent-framework/openai`, but the disk cost is real. If you are embedding only the
   loop and care about install size, that is the trade to weigh.
 - **`maxTurns` off by default cuts both ways.** A loop that never terminates will

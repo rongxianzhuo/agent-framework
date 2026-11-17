@@ -68,46 +68,48 @@ for, is in [docs/integration.md](docs/integration.md).
 
 ## Install in another project
 
-Install the prebuilt package from GitHub Releases. In your application's root
-directory (the one containing its `package.json`), run:
-
-```sh
-npm install https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz
-```
-
-This command installs the package and automatically saves the URL under
-`dependencies` in your application's `package.json`, updating the lockfile too.
-Alternatively, merge this dependency into your existing `package.json`:
-
-```json
-{
-  "dependencies": {
-    "agent-framework": "https://github.com/rongxianzhuo/agent-framework/releases/download/v0.1.0/agent-framework-0.1.0.tgz"
-  }
-}
-```
-
-Then run `npm install` in that application. These are two alternative ways to
-declare the same dependency. The release already contains compiled JavaScript
-and TypeScript declarations; consumers do not need to clone, build or pack this
-repository. Imports still use `agent-framework` and its subpaths, as shown below.
-
-The URL pins version `0.1.0`. To upgrade, change both the release tag and archive
-filename to the desired published version, then run `npm install` again and
-commit the updated `package.json` and lockfile in your application.
-
-Installing from the repository itself also works:
+Install straight from the repository. In your application's root directory (the
+one containing its `package.json`), run:
 
 ```sh
 npm install github:rongxianzhuo/agent-framework
 ```
 
 This clones the source and compiles it during install through the package's
-`prepare` script, so it needs no manual `npm run build`. It follows the default
-branch, which moves; pin a commit
-(`github:rongxianzhuo/agent-framework#<commit>`) when the build must be
-repeatable. Do not pin `v0.1.0`: that tag predates the `prepare` script and
-installs uncompiled source.
+`prepare` script, so there is no separate build step for you to run. The install
+records the dependency in your application's `package.json` and updates its
+lockfile. Alternatively, merge this into your existing `package.json`:
+
+```json
+{
+  "dependencies": {
+    "agent-framework": "github:rongxianzhuo/agent-framework"
+  }
+}
+```
+
+Then run `npm install` in that application. Both forms declare the same
+dependency. Imports use `agent-framework` and its subpaths either way, as shown
+below.
+
+Two things follow from installing source rather than a prebuilt archive. The
+install needs the `typescript` devDependency, which npm fetches from the registry
+and uses to compile `src/` into `dist/`, so it takes about twenty seconds and
+needs network access to the registry — an install that is otherwise fully offline
+will fail. And the result tracks the default branch, which moves: a plain
+`npm install` will not pick up newer commits, because the lockfile pins the commit
+it recorded. To upgrade, run the install command again with the package name so
+npm re-resolves it:
+
+```sh
+npm install agent-framework@github:rongxianzhuo/agent-framework
+```
+
+The lockfile pins a commit, so an install is reproducible across a team even
+though the dependency itself moves. Pin a commit explicitly
+(`github:rongxianzhuo/agent-framework#<commit>`) when you want that commit recorded
+in `package.json` too. Do not pin the `v0.1.0` tag: it predates the `prepare`
+script, so it installs uncompiled source and fails on first import.
 
 ## ESM and TypeScript setup
 
