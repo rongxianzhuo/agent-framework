@@ -1,21 +1,27 @@
-import { isAbsolute, parse, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { lstat, readlink, realpath } from "node:fs/promises";
 
 /** Resolve a model-supplied path against the directory the tool was configured with. */
-export type PathResolver = (path: string) => string;
+export type PathResolver = (path: string) => Promise<string>;
+
+const MAX_LINK_HOPS = 40;
 
 export function createPathResolver(rootDir: string | undefined): PathResolver {
   if (rootDir === undefined) {
-    return (path) => {
+    return async (path) => {
       requireAbsolutePath(path);
       return path;
     };
   }
 
   const root = requireDirectory(rootDir);
-  return (path) => {
-    const target = resolve(root, requirePathString(path));
-    if (!isWithin(root, target)) throw outsideMessage(root);
-    return target;
+  return async (path) => {
+    requirePathString(path);
+    if (process.platform === "win32" && parse(path).root.length === 1) throw outsideMessage();
+    const realRoot = await canonical(root);
+    const realTarget = await canonical(resolve(root, path));
+    if (!isWithin(realRoot, realTarget)) throw outsideMessage();
+    return realTarget;
   };
 }
 
@@ -26,11 +32,10 @@ function requireAbsolutePath(path: string): void {
   }
 }
 
-function requirePathString(path: string): string {
+function requirePathString(path: string): void {
   if (typeof path !== "string" || path.length === 0) {
     throw new Error("A nonempty file path is required.");
   }
-  return path;
 }
 
 function requireDirectory(rootDir: string): string {
@@ -40,18 +45,81 @@ function requireDirectory(rootDir: string): string {
   return resolve(rootDir);
 }
 
+/**
+ * Resolve every symbolic link in a path, including one whose target does not exist.
+ *
+ * `realpath` covers the ordinary case. It fails on a path that does not exist yet,
+ * which is how a new file arrives, and on a link whose target is absent, which is how
+ * a write through a dangling link would land outside the root. A dangling link is
+ * therefore read with `readlink` and resolved as its target; a path that is simply
+ * absent is resolved by following its deepest existing ancestor, since the missing
+ * segments cannot be links.
+ */
+async function canonical(target: string, hops = 0): Promise<string> {
+  if (hops > MAX_LINK_HOPS) throw unresolvable();
+
+  try {
+    return await realpath(target);
+  } catch (error) {
+    if (!isMissing(error)) throw unresolvable();
+  }
+
+  const link = await readLink(target);
+  if (link !== undefined) return canonical(resolve(dirname(target), link), hops + 1);
+
+  const missing: string[] = [];
+  let current = target;
+  while (true) {
+    const parent = dirname(current);
+    if (parent === current) throw unresolvable();
+    missing.unshift(parse(current).base);
+    current = parent;
+
+    try {
+      return join(await realpath(current), ...missing);
+    } catch (error) {
+      if (!isMissing(error)) throw unresolvable();
+    }
+
+    const ancestorLink = await readLink(current);
+    if (ancestorLink !== undefined) {
+      return canonical(join(resolve(dirname(current), ancestorLink), ...missing), hops + 1);
+    }
+  }
+}
+
+/** The target of a symbolic link, or `undefined` when the path is not one. */
+async function readLink(path: string): Promise<string | undefined> {
+  try {
+    if (!(await lstat(path)).isSymbolicLink()) return undefined;
+    return await readlink(path);
+  } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw unresolvable();
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR");
+}
+
 function isWithin(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-function outsideMessage(root: string): Error {
-  return new Error(`The path must stay inside ${root}.`);
+function outsideMessage(): Error {
+  return new Error("The path must stay inside the allowed directory.");
+}
+
+function unresolvable(): Error {
+  return new Error("The path could not be resolved. Check that it is reachable.");
 }
 
 /** The path convention a tool describes to the model, matching its resolver. */
 export function pathRule(rootDir: string | undefined): string {
   return rootDir === undefined
     ? "An absolute path is required."
-    : `Paths are relative to ${rootDir} and must stay inside it.`;
+    : "Paths are resolved against the tool's root directory and must stay inside it.";
 }

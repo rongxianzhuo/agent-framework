@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { executeTool } from "../../src/index.js";
@@ -88,11 +88,11 @@ describe("rootDir path resolution", () => {
       .rejects.toThrow("must stay inside");
   });
 
-  it("resolves the writer through rootDir and reports the resolved path", async () => {
+  it("resolves the writer through rootDir and echoes the supplied path", async () => {
     const tool = createWriteFileTool({ rootDir: root });
     const result = await tool.execute({ path: "nested/written.txt", content: "written" }, ctx);
     expect(await readFile(join(root, "nested", "written.txt"), "utf8")).toBe("written");
-    expect(result.content).toEqual([{ type: "text", text: `Wrote 7 bytes to ${absolute("nested/written.txt")}.` }]);
+    expect(result.content).toEqual([{ type: "text", text: "Wrote 7 bytes to nested/written.txt." }]);
     await expect(tool.execute({ path: "../outside/escape.txt", content: "no" }, ctx)).rejects.toThrow("must stay inside");
   });
 
@@ -104,12 +104,37 @@ describe("rootDir path resolution", () => {
       ctx,
     );
     expect(await readFile(path, "utf8")).toBe("new text");
-    expect(result.content).toEqual([{ type: "text", text: `Replaced 1 occurrence in ${path}.` }]);
+    expect(result.content).toEqual([{ type: "text", text: "Replaced 1 occurrence in nested/edited.txt." }]);
     await expect(createEditFileTool({ rootDir: root }).execute(
       { file_path: "../outside/secret.txt", old_string: "secret", new_string: "leaked" },
       ctx,
     )).rejects.toThrow("must stay inside");
     expect(await readFile(join(outside, "secret.txt"), "utf8")).toBe("secret");
+  });
+
+  it("never reveals the root directory in a description or a result", async () => {
+    const tools = [
+      createReadFileTool({ rootDir: root }),
+      createReadImageTool({ rootDir: root }),
+      createWriteFileTool({ rootDir: root }),
+      createEditFileTool({ rootDir: root }),
+    ];
+    for (const tool of tools) {
+      expect(JSON.stringify(tool.parameters)).not.toContain(root);
+      expect(tool.description).not.toContain(root);
+    }
+    const failed = await executeTool(
+      tools[0]!,
+      { id: "t", name: "read_file", args: { path: "../outside/secret.txt" } },
+      ctx,
+    );
+    expect(JSON.stringify(failed.message)).not.toContain(root);
+    const written = await createWriteFileTool({ rootDir: root }).execute({ path: "probe.txt", content: "x" }, ctx);
+    const edited = await createEditFileTool({ rootDir: root }).execute(
+      { file_path: "probe.txt", old_string: "x", new_string: "y" },
+      ctx,
+    );
+    expect(JSON.stringify([written, edited])).not.toContain(root);
   });
 
   it("reports escapes as ordinary tool failures rather than throwing past the executor", async () => {
@@ -131,13 +156,14 @@ describe("rootDir path resolution", () => {
 
   it("describes the active path rule to the model", () => {
     expect(createReadFileTool().description).toContain("An absolute path is required.");
-    expect(createReadFileTool({ rootDir: root }).description).toContain(`Paths are relative to ${root} and must stay inside it.`);
+    const rule = "Paths are resolved against the tool's root directory and must stay inside it.";
     for (const tool of [
+      createReadFileTool({ rootDir: root }),
       createReadImageTool({ rootDir: root }),
       createWriteFileTool({ rootDir: root }),
       createEditFileTool({ rootDir: root }),
     ]) {
-      expect(tool.description).toContain("Paths are relative to");
+      expect(tool.description).toContain(rule);
     }
   });
 
@@ -154,6 +180,65 @@ describe("rootDir path resolution", () => {
   });
 });
 
-function absolute(...parts: string[]): string {
-  return join(root, ...parts);
-}
+describe.skipIf(process.platform === "win32")("symbolic links under rootDir", () => {
+  it("rejects a link to a file outside the root", async () => {
+    const link = join(root, "escape.txt");
+    await symlink(join(outside, "secret.txt"), link);
+    await expect(createReadFileTool({ rootDir: root }).execute({ path: "escape.txt" }, ctx))
+      .rejects.toThrow("must stay inside");
+    await expect(createReadImageTool({ rootDir: root }).execute({ path: "escape.txt" }, ctx))
+      .rejects.toThrow("must stay inside");
+  });
+
+  it("rejects a directory link that escapes, for reads and writes", async () => {
+    const link = join(root, "escape-dir");
+    await symlink(outside, link, "dir");
+    await expect(createReadFileTool({ rootDir: root }).execute({ path: "escape-dir/secret.txt" }, ctx))
+      .rejects.toThrow("must stay inside");
+    await expect(createWriteFileTool({ rootDir: root }).execute({ path: "escape-dir/planted.txt", content: "x" }, ctx))
+      .rejects.toThrow("must stay inside");
+    await expect(createEditFileTool({ rootDir: root }).execute(
+      { file_path: "escape-dir/secret.txt", old_string: "secret", new_string: "leaked" },
+      ctx,
+    )).rejects.toThrow("must stay inside");
+    await expect(stat(join(outside, "planted.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(outside, "secret.txt"), "utf8")).toBe("secret");
+  });
+
+  it("rejects a link inside the root that points back outside through several hops", async () => {
+    await symlink(outside, join(root, "hop1"), "dir");
+    await symlink(join(root, "hop1"), join(root, "hop2"), "dir");
+    await expect(createReadFileTool({ rootDir: root }).execute({ path: "hop2/secret.txt" }, ctx))
+      .rejects.toThrow("must stay inside");
+  });
+
+  it("allows a link to a file inside the root", async () => {
+    await symlink(join(root, "nested", "deep.txt"), join(root, "alias.txt"));
+    const result = await createReadFileTool({ rootDir: root }).execute({ path: "alias.txt" }, ctx);
+    expect(result.content).toEqual([{ type: "text", text: "deep" }]);
+  });
+
+  it("resolves rootDir itself through a link before comparing", async () => {
+    const link = join(resolve(root, ".."), "root-link");
+    await symlink(root, link, "dir");
+    const tool = createReadFileTool({ rootDir: link });
+    expect((await tool.execute({ path: "text.txt" }, ctx)).content).toEqual([{ type: "text", text: "inside" }]);
+    await expect(tool.execute({ path: "../outside/secret.txt" }, ctx)).rejects.toThrow("must stay inside");
+    await rm(link, { force: true });
+  });
+
+  it("rejects a dangling link whose target lies outside the root", async () => {
+    const link = join(root, "dangling.txt");
+    await symlink(join(outside, "not-there.txt"), link);
+    await expect(createWriteFileTool({ rootDir: root }).execute({ path: "dangling.txt", content: "x" }, ctx))
+      .rejects.toThrow("must stay inside");
+    await expect(stat(join(outside, "not-there.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("leaves links unrestricted when the tool has no rootDir", async () => {
+    const link = join(root, "open-escape.txt");
+    await symlink(join(outside, "secret.txt"), link);
+    const result = await createReadFileTool().execute({ path: link }, ctx);
+    expect(result.content).toEqual([{ type: "text", text: "secret" }]);
+  });
+});

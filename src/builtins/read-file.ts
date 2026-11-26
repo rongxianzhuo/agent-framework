@@ -36,7 +36,7 @@ export function createReadFileTool(options: ReadFileToolOptions = {}): ToolDefin
         (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1)) {
         throw new Error("offset must be a non-negative safe integer and limit must be a positive safe integer.");
       }
-      const absolute = toPath(path);
+      const absolute = await toPath(path);
       const bytes = maxBytes === undefined
         ? await readFile(absolute, { signal: ctx.signal })
         : await readWithinLimit(absolute, maxBytes, ctx.signal);

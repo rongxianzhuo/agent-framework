@@ -24,7 +24,7 @@ export function createEditFileTool(options: EditFileToolOptions = {}): ToolDefin
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ file_path, old_string, new_string, replace_all = false }, ctx) => {
-      const absolute = toPath(file_path);
+      const absolute = await toPath(file_path);
       if (old_string.length === 0) throw new Error("old_string must not be empty.");
       const bytes = await readFile(absolute, { signal: ctx.signal });
       requireTextContent(bytes);
@@ -41,7 +41,7 @@ export function createEditFileTool(options: EditFileToolOptions = {}): ToolDefin
         : parts.join(new_string);
       ctx.signal?.throwIfAborted();
       await writeFile(absolute, updated, { encoding: "utf8", flag: "w", signal: ctx.signal });
-      return textResult(`Replaced ${count} occurrence${count === 1 ? "" : "s"} in ${absolute}.`);
+      return textResult(`Replaced ${count} occurrence${count === 1 ? "" : "s"} in ${file_path}.`);
     },
   });
 }

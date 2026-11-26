@@ -21,10 +21,10 @@ export function createWriteFileTool(options: WriteFileToolOptions = {}): ToolDef
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ path, content }, ctx) => {
-      const absolute = toPath(path);
+      const absolute = await toPath(path);
       ctx.signal?.throwIfAborted();
       await writeFile(absolute, content, { encoding: "utf8", flag: "w", signal: ctx.signal });
-      return textResult(`Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${absolute}.`);
+      return textResult(`Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${path}.`);
     },
   });
 }

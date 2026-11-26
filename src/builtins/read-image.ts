@@ -17,7 +17,7 @@ export function createReadImageTool(options: ReadToolOptions = {}): ToolDefiniti
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ path }, ctx) => {
-      const bytes = await readFile(toPath(path), { signal: ctx.signal });
+      const bytes = await readFile(await toPath(path), { signal: ctx.signal });
       return { content: [{ type: "image", mimeType: imageMimeType(bytes), data: bytes.toString("base64") }] };
     },
   });

@@ -545,13 +545,20 @@ boundary at all. The comparison uses resolved paths, so a sibling directory that
 merely shares a prefix (`/srv/workspace-other` beside `/srv/workspace`) counts as
 outside.
 
-The comparison does not resolve symbolic links, so a symlink inside `rootDir` that
-points elsewhere is followed. If that matters for your deployment, pair `rootDir`
-with a permission decision in `onToolCall`.
+Both sides of the comparison are resolved to their real paths first, so a symbolic
+link inside `rootDir` cannot point elsewhere: a link to a file outside, a link to a
+directory outside, a chain of links, and a dangling link are all rejected. `rootDir`
+itself may be reached through a link. A path that does not exist yet is resolved
+through its deepest existing ancestor, which is why `write_file` can create a new
+file without the check being skipped.
 
-Each tool describes the active rule to the model, because the description is the
-only instruction it gets on how to form a path. Passing `rootDir` changes what the
-model is told, not just what the tool accepts.
+The directory never appears in what the model sees: not in a tool description, not
+in the schema, not in a tool result, and not in the message for a rejected path.
+Each tool describes the active rule instead, saying that paths resolve against its
+root directory and must stay inside it, because the description is the only
+instruction the model gets on how to form a path. Passing `rootDir` therefore
+changes what the model is told, not just what the tool accepts, while revealing
+nothing about the filesystem outside the sandbox.
 
 Readers accept `ReadToolOptions` and the writer accepts `WriteFileToolOptions`:
 optional `name`, `timeoutMs` and `rootDir`. The editor accepts the same settings
@@ -1184,11 +1191,13 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`call.args` in a hook is `unknown`, deliberately.** A hook runs before
   anything knows which tool's schema applies to this call, and the value came from
   a model. Narrow it next to the tool definition that owns the shape.
-- **`rootDir` guards paths, not the filesystem.** It compares resolved paths, so a
-  symlink inside the directory is followed wherever it points. A tool created
-  without `rootDir` also stays unrestricted by design, which is why the default is
-  an absolute path rather than the working directory: a model that guesses
-  `notes.txt` gets an error, not whichever file happens to sit there.
+- **`rootDir` is a path check, not a filesystem jail.** Symbolic links are resolved
+  on both sides, which closes the obvious escape, but the check and the I/O are
+  separate operations: a link swapped in between them, or a hard link to a file
+  outside, is not caught. A tool created without `rootDir` also stays unrestricted by
+  design, which is why the default is an absolute path rather than the working
+  directory: a model that guesses `notes.txt` gets an error, not whichever file
+  happens to sit there.
 - **`details` is not sent to the model.** It is for you. Nothing in it reaches the
   provider, so it is a safe place for structured data, but it is also not a place
   the model can read.
