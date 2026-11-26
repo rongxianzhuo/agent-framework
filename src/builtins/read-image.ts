@@ -1,23 +1,23 @@
 import { readFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition } from "../tools/definition.js";
-import { requireAbsolutePath } from "./paths.js";
+import { createPathResolver, pathRule } from "./paths.js";
 import type { ReadPathArgs, ReadToolOptions } from "./options.js";
 
 /** Create an opt-in PNG/JPEG/GIF/WebP reader returning a Base64 image block. */
 export function createReadImageTool(options: ReadToolOptions = {}): ToolDefinition<ReadPathArgs> {
+  const toPath = createPathResolver(options.rootDir);
   return defineTool<ReadPathArgs>({
     name: options.name ?? "read_image",
-    description: "Read a local PNG, JPEG, GIF or WebP image using an absolute path and return its image content.",
+    description: `Read a local PNG, JPEG, GIF or WebP image and return its image content. ${pathRule(options.rootDir)}`,
     parameters: {
       type: "object",
-      properties: { path: { type: "string", minLength: 1, description: "Absolute path of the image to read." } },
+      properties: { path: { type: "string", minLength: 1, description: "Path of the image to read." } },
       required: ["path"],
       additionalProperties: false,
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ path }, ctx) => {
-      requireAbsolutePath(path);
-      const bytes = await readFile(path, { signal: ctx.signal });
+      const bytes = await readFile(toPath(path), { signal: ctx.signal });
       return { content: [{ type: "image", mimeType: imageMimeType(bytes), data: bytes.toString("base64") }] };
     },
   });

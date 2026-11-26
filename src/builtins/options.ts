@@ -4,6 +4,11 @@ export interface ReadToolOptions {
   name?: string;
   /** Optional per-call timeout; cancellation uses the existing tool executor. */
   timeoutMs?: number;
+  /**
+   * When set, `path` is resolved against this directory and must stay inside it.
+   * Omit it to keep requiring absolute paths.
+   */
+  rootDir?: string;
 }
 
 /** Text-reader configuration, controlled by the developer rather than the model. */
@@ -12,10 +17,10 @@ export interface ReadFileToolOptions extends ReadToolOptions {
   maxBytes?: number;
 }
 
-/** Writer factories accept the same optional name and timeout settings. */
+/** Writer factories accept the same optional name, timeout and rootDir settings. */
 export type WriteFileToolOptions = ReadToolOptions;
 
-/** Editor factories accept the same optional name and timeout settings. */
+/** Editor factories accept the same optional name, timeout and rootDir settings. */
 export type EditFileToolOptions = ReadToolOptions;
 
 /** Literal text replacement in an existing UTF-8 file. */
@@ -27,13 +32,13 @@ export interface EditFileArgs {
   replace_all?: boolean;
 }
 
-/** UTF-8 text to create or overwrite at an absolute path. */
+/** UTF-8 text to create or overwrite at a path. */
 export interface WriteFileArgs {
   path: string;
   content: string;
 }
 
-/** Both readers require a fully qualified absolute file path. */
+/** Both readers take a file path, absolute or relative to the configured rootDir. */
 export interface ReadPathArgs {
   path: string;
 }

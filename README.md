@@ -235,18 +235,21 @@ const agent = new Agent({
   model,
   system: "You are a coding agent.",
   tools: [
-    createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
-    createReadImageTool({ timeoutMs: 10_000 }),
-    createWriteFileTool(),
-    createEditFileTool(),
+    createReadFileTool({ maxBytes: 1024 * 1024, rootDir: "/srv/workspace" }), // 1 MiB
+    createReadImageTool({ timeoutMs: 10_000, rootDir: "/srv/workspace" }),
+    createWriteFileTool({ rootDir: "/srv/workspace" }),
+    createEditFileTool({ rootDir: "/srv/workspace" }),
   ],
 });
 ```
 
-All file tools require absolute paths. `read_file` returns UTF-8 text; `read_image`
+Without `rootDir`, every file tool requires an absolute path. Set it to an absolute
+directory and `path` becomes relative to that directory, with results outside it
+rejected; absolute paths are still accepted when they land inside. The directory
+itself is validated when the tool is created. `read_file` returns UTF-8 text; `read_image`
 returns a Base64 image block for PNG, JPEG, GIF or WebP, identified by file
-signature. Each factory accepts optional `name` and `timeoutMs` settings and
-returns an ordinary `ToolDefinition`. Registration is explicit; permissions still
+signature. Each factory accepts optional `name`, `timeoutMs` and `rootDir` settings
+and returns an ordinary `ToolDefinition`. Registration is explicit; permissions still
 use your existing `onToolCall` hook. Importing `agent-framework` alone loads none of these tools.
 
 `write_file` accepts `{ path, content }` and creates or overwrites a UTF-8 text
@@ -271,7 +274,7 @@ partial text. Reads are bounded even if a file grows after its size is checked.
 The model may pass `offset` and `limit` together to read a line range:
 
 ```json
-{ "path": "/absolute/file.txt", "offset": 10, "limit": 20 }
+{ "path": "notes/todo.txt", "offset": 10, "limit": 20 }
 ```
 
 This skips 10 lines and returns at most 20 lines (lines 11–30). `offset` is a
@@ -397,9 +400,10 @@ including one you write yourself — and returns pass/fail data.
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
 - **`examples/index.mjs`** — a multi-turn chat bot with `read_file`, `read_image`,
-  `write_file` and `edit_file` tools. Give an absolute path to a text file or a PNG/JPEG/GIF/WebP
+  `write_file` and `edit_file` tools. Its file tools are rooted at the directory you
+  start it from, so give a path relative to it, for a text file or a PNG/JPEG/GIF/WebP
   image. Configure a vision-capable endpoint/model for image understanding;
-  the default endpoint is DeepSeek. Relative paths are rejected. It prints tool
+  the default endpoint is DeepSeek. It prints tool
   activity and the model's reasoning above each answer, which is
   what `thinking_delta` events are for. `Agent` carries the transcript between
   turns; terminal input and rendering stay in the example. Needs

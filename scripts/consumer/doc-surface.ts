@@ -108,10 +108,10 @@ export function eventFields(event: AgentEvent): string {
 // --- Built-in file tools ---------------------------------------------------
 
 export const fileTools = [
-  createReadFileTool({ maxBytes: 1024 * 1024 }),
-  createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
-  createWriteFileTool(),
-  createEditFileTool({ timeoutMs: 5_000 }),
+  createReadFileTool({ maxBytes: 1024 * 1024, rootDir: "/srv/workspace" }),
+  createReadImageTool({ name: "inspect_image", timeoutMs: 10_000, rootDir: "/srv/workspace" }),
+  createWriteFileTool({ rootDir: "/srv/workspace" }),
+  createEditFileTool({ timeoutMs: 5_000, rootDir: "/srv/workspace" }),
 ];
 
 // The editor's argument names, and `replace_all`, are documented exactly so.

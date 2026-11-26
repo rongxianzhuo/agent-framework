@@ -8,10 +8,11 @@ If you would rather read code than prose, `examples/index.mjs` is a
 multi-turn chat bot with local reading, writing and editing tools in one file, and its loop is the
 shape every embedding agent starts from. It targets DeepSeek's endpoint and needs
 `OPENAI_API_KEY`. Run `npm run example`, then ask it to read a text file by its
-absolute path. For images, configure a vision-capable endpoint/model and ask it
-to inspect a PNG, JPEG, GIF or WebP file by absolute path. `write_file` can create
-or overwrite text files. All file tools reject
-relative paths, and the system prompt does not include the current working directory.
+path relative to the directory you started it from. For images, configure a
+vision-capable endpoint/model and ask it to inspect a PNG, JPEG, GIF or WebP file the
+same way. `write_file` can create or overwrite text files. Its file tools are rooted
+at that directory, so paths outside it are rejected; the system prompt does not
+include the working directory, so the model sees only the paths you give it.
 
 The example saves completed conversations to `examples/history.json` and reloads
 them on restart. Try telling it your name, exit with `/exit`, run it again, then
@@ -349,9 +350,9 @@ return {
 
 Use an image block rather than wrapping Base64 in `textResult()`, so the model
 receives image input instead of encoded text. The example's `read_image` reads
-the supplied absolute path, detects PNG/JPEG/GIF/WebP from the file signature,
-and returns raw Base64 plus its MIME type. Read errors and unsupported formats
-become ordinary failed tool results.
+the supplied path inside its root directory, detects PNG/JPEG/GIF/WebP from the
+file signature, and returns raw Base64 plus its MIME type. Read errors and
+unsupported formats become ordinary failed tool results.
 
 Chat Completions tool messages accept text, so this adapter keeps each `tool`
 response and attaches its images in a supplementary `user` message after the
@@ -486,10 +487,10 @@ const agent = new Agent({
   model,
   system: "You are a coding agent.",
   tools: [
-    createReadFileTool({ maxBytes: 1024 * 1024 }), // 1 MiB
-    createReadImageTool({ name: "inspect_image", timeoutMs: 10_000 }),
-    createWriteFileTool(),
-    createEditFileTool(),
+    createReadFileTool({ maxBytes: 1024 * 1024, rootDir: "/srv/workspace" }), // 1 MiB
+    createReadImageTool({ name: "inspect_image", timeoutMs: 10_000, rootDir: "/srv/workspace" }),
+    createWriteFileTool({ rootDir: "/srv/workspace" }),
+    createEditFileTool({ rootDir: "/srv/workspace" }),
   ],
 });
 ```
@@ -499,8 +500,6 @@ returns `ToolDefinition<ReadPathArgs>`. Both accept `{ path: string }`; the text
 reader additionally supports the paired `offset` and `limit` fields. The writer returns
 `ToolDefinition<WriteFileArgs>` with `{ path: string, content: string }` arguments.
 The editor returns `ToolDefinition<EditFileArgs>` with the arguments shown below.
-All filesystem tools reject relative paths, including
-Windows drive-relative and root-only paths. There is no working-directory fallback.
 
 - `createReadFileTool()` defaults to the name `read_file` and returns UTF-8 text
   via `textResult()`. Before decoding it rejects NUL bytes, dense non-text control
@@ -522,9 +521,41 @@ Windows drive-relative and root-only paths. There is no working-directory fallba
   by literal text replacement and returns a text confirmation with the replacement
   count. Missing files, binary content and invalid UTF-8 are rejected before writing.
 
+### Absolute paths, or a rootDir
+
+Without configuration every filesystem tool requires an absolute path, including
+on Windows where drive-relative and root-only paths are rejected. There is no
+working-directory fallback, so a model that guesses a path fails instead of
+touching an unrelated file.
+
+Set `rootDir` on a factory to accept relative paths instead. It must be absolute;
+a relative one throws when the tool is created. Then `path` is resolved against it,
+and the result must stay inside it:
+
+| `rootDir` | `path` | Result |
+| --- | --- | --- |
+| omitted | absolute | used as given |
+| omitted | relative | rejected |
+| set | relative | resolved against `rootDir`, must stay inside |
+| set | absolute | must stay inside `rootDir` |
+
+Rejecting relative paths when `rootDir` is omitted is what keeps the boundary
+meaningful: accepting a relative escape while rejecting an absolute one would be no
+boundary at all. The comparison uses resolved paths, so a sibling directory that
+merely shares a prefix (`/srv/workspace-other` beside `/srv/workspace`) counts as
+outside.
+
+The comparison does not resolve symbolic links, so a symlink inside `rootDir` that
+points elsewhere is followed. If that matters for your deployment, pair `rootDir`
+with a permission decision in `onToolCall`.
+
+Each tool describes the active rule to the model, because the description is the
+only instruction it gets on how to form a path. Passing `rootDir` changes what the
+model is told, not just what the tool accepts.
+
 Readers accept `ReadToolOptions` and the writer accepts `WriteFileToolOptions`:
-optional `name` and `timeoutMs`. The editor accepts the same settings through
-`EditFileToolOptions`. The text reader
+optional `name`, `timeoutMs` and `rootDir`. The editor accepts the same settings
+through `EditFileToolOptions`. The text reader
 uses the extended `ReadFileToolOptions`, which additionally accepts `maxBytes`.
 This is developer configuration, not a model-provided tool argument. It must be
 a non-negative safe integer, measured in bytes rather than Unicode characters.
@@ -537,7 +568,7 @@ cause an unbounded read. Handles are closed on success, failure and cancellation
 For line ranges the model supplies both `offset` and `limit`, for example:
 
 ```json
-{ "path": "/absolute/file.txt", "offset": 10, "limit": 20 }
+{ "path": "notes/todo.txt", "offset": 10, "limit": 20 }
 ```
 
 `offset` is the number of lines to skip, starting at zero; `limit` is the maximum
@@ -558,7 +589,7 @@ The editor's model-facing arguments use these exact names:
 
 ```json
 {
-  "file_path": "/absolute/file.txt",
+  "file_path": "src/index.ts",
   "old_string": "old text",
   "new_string": "replacement text",
   "replace_all": false
@@ -1153,6 +1184,11 @@ Other knobs: `delayMs` and `chunkDelayMs` per turn (to test timeouts and aborts)
 - **`call.args` in a hook is `unknown`, deliberately.** A hook runs before
   anything knows which tool's schema applies to this call, and the value came from
   a model. Narrow it next to the tool definition that owns the shape.
+- **`rootDir` guards paths, not the filesystem.** It compares resolved paths, so a
+  symlink inside the directory is followed wherever it points. A tool created
+  without `rootDir` also stays unrestricted by design, which is why the default is
+  an absolute path rather than the working directory: a model that guesses
+  `notes.txt` gets an error, not whichever file happens to sit there.
 - **`details` is not sent to the model.** It is for you. Nothing in it reaches the
   provider, so it is a safe place for structured data, but it is also not a place
   the model can read.
