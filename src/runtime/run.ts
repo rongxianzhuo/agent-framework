@@ -23,7 +23,7 @@
 
 import { EMPTY_USAGE, addUsage, type Usage } from "../core/usage.js";
 import { normalizeThrown, type NormalizedError } from "../core/errors.js";
-import { toToolSpec, type ToolContext, type ToolDefinition } from "../tools/definition.js";
+import { toToolSpec, type AnyTool, type ToolContext } from "../tools/definition.js";
 import type { LLMClient, LLMRequest } from "../core/client.js";
 import {
   HookError,
@@ -50,7 +50,7 @@ export interface RunOptions {
   messages: readonly Message[];
 
   /** Tools offered to the model this run. Omit for a chat-only run. */
-  tools?: readonly ToolDefinition<never>[];
+  tools?: readonly AnyTool[];
 
   /**
    * Cancels the run. Reaches the in-flight model call and every running tool.

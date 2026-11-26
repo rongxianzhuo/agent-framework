@@ -213,6 +213,18 @@ await save(result.messages);
 `run` returns `{ messages, usage, turns, stopReason, error? }`. It does not throw
 for model or tool failures — those come back in the result.
 
+Each definition keeps its own argument type, which is why a collection holding
+tools of different shapes is typed `AnyTool[]` (`AnyTool` is `ToolDefinition<never>`).
+A concrete tool does not fit `ToolDefinition<unknown>`, because the argument
+position makes the type contravariant. `tools`, `ToolRegistry` and
+`hooks.onToolCall`'s `tool` all use `AnyTool`.
+
+```ts
+import { type AnyTool } from "agent-framework";
+
+const tools: AnyTool[] = [read, search];
+```
+
 ## Built-in file tools
 
 ```ts

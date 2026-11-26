@@ -2,15 +2,20 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   DEFAULT_RETRYABLE,
+  ToolRegistry,
   VERSION,
+  defineTool,
+  textResult,
   toNormalizedError,
   type AgentEvent,
+  type AnyTool,
   type AssistantMessage,
   type ContentBlock,
   type ImageBlock,
   type Message,
   type RunStopReason,
   type StopReason,
+  type ToolDefinition,
   type ToolResultMessage,
   type Usage,
   type UserMessage,
@@ -190,6 +195,55 @@ describe("events", () => {
     const deltas = events.filter((e) => e.type === "text_delta");
     expectTypeOf(deltas[0]).toEqualTypeOf<Extract<AgentEvent, { type: "text_delta" }> | undefined>();
     expect(deltas.map((e) => (e.type === "text_delta" ? e.text : ""))).toEqual(["Hel"]);
+  });
+});
+
+describe("tool container variance", () => {
+  const read = defineTool<{ path: string }>({
+    name: "read",
+    description: "Read a file.",
+    parameters: {
+      type: "object",
+      properties: { path: { type: "string" } },
+      required: ["path"],
+      additionalProperties: false,
+    },
+    execute: ({ path }) => textResult(path),
+  });
+
+  const search = defineTool<{ query: string; limit?: number }>({
+    name: "search",
+    description: "Search the notes.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    execute: ({ query }) => textResult(query),
+  });
+
+  it("accepts tools of unrelated shapes in an AnyTool container", () => {
+    const tools: AnyTool[] = [read, search];
+    expect(tools.map((tool) => tool.name)).toEqual(["read", "search"]);
+  });
+
+  it("rejects a typed tool in an unknown container", () => {
+    // @ts-expect-error
+    const loose: ToolDefinition<unknown>[] = [read];
+    expect(loose).toHaveLength(1);
+  });
+
+  it("exposes the argument type of a single definition", () => {
+    expectTypeOf(read).toEqualTypeOf<ToolDefinition<{ path: string }>>();
+    expectTypeOf(read).not.toEqualTypeOf<AnyTool>();
+  });
+
+  it("hands an AnyTool to a registry and to run", () => {
+    const registry = new ToolRegistry([read, search]);
+    const picked: AnyTool[] = registry.pick(["search"]);
+    expect(picked[0]?.name).toBe("search");
+    expectTypeOf(picked).toEqualTypeOf<AnyTool[]>();
   });
 });
 

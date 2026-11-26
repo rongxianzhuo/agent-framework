@@ -1,6 +1,6 @@
 import { toNormalizedError, type NormalizedError } from "../core/errors.js";
 import type { ToolCall, ToolResult, ToolResultMessage } from "../core/messages.js";
-import type { ToolContext, ToolDefinition } from "./definition.js";
+import type { AnyTool, ToolContext } from "./definition.js";
 import { validate } from "./schema.js";
 import { toResultMessage } from "./results.js";
 
@@ -35,7 +35,7 @@ const MAX_ERROR_CHARS = 2_000;
  * different message than one that hallucinates an argument.
  */
 export async function executeTool(
-  tool: ToolDefinition<never> | undefined,
+  tool: AnyTool | undefined,
   call: ToolCall,
   ctx: ToolContext,
 ): Promise<ToolExecution> {
@@ -110,7 +110,7 @@ export async function executeTool(
 }
 
 async function runWithTimeout(
-  tool: ToolDefinition<never>,
+  tool: AnyTool,
   call: ToolCall,
   ctx: ToolContext,
 ): Promise<ToolResult> {

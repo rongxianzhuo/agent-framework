@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "./definition.js";
+import type { AnyTool } from "./definition.js";
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -13,13 +13,13 @@ import type { ToolDefinition } from "./definition.js";
  * it a bug that only shows up in production.
  */
 export class ToolRegistry {
-  readonly #tools = new Map<string, ToolDefinition<never>>();
+  readonly #tools = new Map<string, AnyTool>();
 
-  constructor(tools: readonly ToolDefinition<never>[] = []) {
+  constructor(tools: readonly AnyTool[] = []) {
     for (const tool of tools) this.register(tool);
   }
 
-  register(tool: ToolDefinition<never>): this {
+  register(tool: AnyTool): this {
     if (this.#tools.has(tool.name)) {
       throw new Error(`Duplicate tool name "${tool.name}".`);
     }
@@ -27,7 +27,7 @@ export class ToolRegistry {
     return this;
   }
 
-  get(name: string): ToolDefinition<never> | undefined {
+  get(name: string): AnyTool | undefined {
     return this.#tools.get(name);
   }
 
@@ -36,7 +36,7 @@ export class ToolRegistry {
   }
 
   /** Every tool, in registration order. */
-  list(): ToolDefinition<never>[] {
+  list(): AnyTool[] {
     return [...this.#tools.values()];
   }
 
@@ -50,7 +50,7 @@ export class ToolRegistry {
    * Throws on an unknown name: a typo in a config file should fail at startup,
    * not quietly hand the model a smaller toolbox than the caller intended.
    */
-  pick(names: readonly string[]): ToolDefinition<never>[] {
+  pick(names: readonly string[]): AnyTool[] {
     return names.map((name) => {
       const tool = this.#tools.get(name);
       if (!tool) {

@@ -625,6 +625,34 @@ The schema is a deliberate subset of JSON Schema:
   rather than being silently ignored, because ignoring a constraint produces a
   tool that fails at runtime for reasons its author cannot see.
 
+### Holding tools of different shapes
+
+`ToolDefinition<A>` puts `A` in an argument position, so it varies contravariantly:
+`ToolDefinition<X>` is assignable to `ToolDefinition<Y>` only when `Y` is assignable
+to `X`. A concrete tool therefore cannot be stored as `ToolDefinition<unknown>`,
+because that would ask a function expecting `{ query: string }` to accept anything.
+
+Use `AnyTool`, which is `ToolDefinition<never>`, for any position that holds tools
+of unrelated argument shapes: an array, a function parameter, a `Map` value, a
+field you are about to hand to `tools`. `never` is assignable to every argument
+type, so every tool fits.
+
+```ts
+import { type AnyTool } from "agent-framework";
+
+const tools: AnyTool[] = [read, search];
+const byName = new Map<string, AnyTool>(tools.map((tool) => [tool.name, tool]));
+```
+
+The argument type is erased at that point, and nothing is lost: code holding a mixed
+set of tools cannot know which schema applies to a given call, so `executeTool`
+validates the arguments against the called tool's own schema before invoking it.
+Keep the precise generic on the individual definition, where the shape is actually
+known; the `search` definition above is one.
+
+For the same reason, `Agent` and `run` take `readonly AnyTool[]` for `tools`, and
+`hooks.onToolCall` receives `tool: AnyTool | undefined`.
+
 ### Failures are data, not exceptions
 
 This is the rule that makes a run self-correcting. A tool that throws, times out,

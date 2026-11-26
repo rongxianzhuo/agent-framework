@@ -25,6 +25,7 @@ import {
   type LLMEvent,
   type ToolCall,
   type Usage,
+  type AnyTool,
 } from "agent-framework";
 import { openaiClient } from "agent-framework/openai";
 import { fauxClient } from "agent-framework/faux";
@@ -149,6 +150,10 @@ const search = defineTool<{ query: string; limit?: number }>({
   },
   execute: (args) => jsonResult({ query: args.query, limit: args.limit ?? 10 }),
 });
+
+const anyTools: AnyTool[] = [read, search];
+const byName = new Map<string, AnyTool>(anyTools.map((tool) => [tool.name, tool]));
+export const toolIndex = byName.size;
 
 // --- Hooks ----------------------------------------------------------------
 

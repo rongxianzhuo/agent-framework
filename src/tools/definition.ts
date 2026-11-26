@@ -60,6 +60,8 @@ export interface ToolDefinition<A = unknown> {
   timeoutMs?: number;
 }
 
+export type AnyTool = ToolDefinition<never>;
+
 const NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /**
@@ -95,7 +97,7 @@ export function defineTool<A = unknown>(definition: ToolDefinition<A>): ToolDefi
 }
 
 /** Convert tool definitions into the wire-facing subset. */
-export function toToolSpec(tools: readonly ToolDefinition<never>[]): ToolSpec[] {
+export function toToolSpec(tools: readonly AnyTool[]): ToolSpec[] {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,

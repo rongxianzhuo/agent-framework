@@ -33,7 +33,7 @@
 import { toNormalizedError, type NormalizedError } from "../core/errors.js";
 import { toResultMessage } from "../tools/results.js";
 import type { LLMRequest } from "../core/client.js";
-import type { ToolDefinition } from "../tools/definition.js";
+import type { AnyTool } from "../tools/definition.js";
 import type { ToolExecution } from "../tools/execute.js";
 import { copyMessages, type Message, type ToolCall, type ToolResult } from "../core/messages.js";
 
@@ -85,7 +85,7 @@ export interface ToolCallContext {
    * The definition, or `undefined` when the model named a tool that was never
    * offered. A hook that inspects the definition must handle both.
    */
-  tool: ToolDefinition<never> | undefined;
+  tool: AnyTool | undefined;
   signal: AbortSignal | undefined;
 }
 

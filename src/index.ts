@@ -57,7 +57,7 @@ export { type JSONSchema, type JSONSchemaType } from "./core/schema.js";
 
 // Tools
 export { ToolRegistry } from "./tools/registry.js";
-export { defineTool, type ToolContext, type ToolDefinition } from "./tools/definition.js";
+export { defineTool, type AnyTool, type ToolContext, type ToolDefinition } from "./tools/definition.js";
 export { executeTool, type ToolExecution } from "./tools/execute.js";
 export { jsonResult, textResult } from "./tools/results.js";
 
