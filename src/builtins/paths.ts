@@ -1,8 +1,17 @@
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { lstat, readlink, realpath } from "node:fs/promises";
 
-/** Resolve a model-supplied path against the directory the tool was configured with. */
-export type PathResolver = (path: string) => Promise<string>;
+/** A path the model asked for, both as it will be opened and as it will be echoed. */
+export interface ResolvedPath {
+  /** Absolute path on disk, after every symbolic link has been resolved. */
+  absolute: string;
+  /** The path as the model supplied it, safe to show back to it. */
+  display: string;
+  /** Real path of the configured root directory, when there is one. */
+  root?: string;
+}
+
+export type PathResolver = (path: string) => Promise<ResolvedPath>;
 
 const MAX_LINK_HOPS = 40;
 
@@ -10,7 +19,7 @@ export function createPathResolver(rootDir: string | undefined): PathResolver {
   if (rootDir === undefined) {
     return async (path) => {
       requireAbsolutePath(path);
-      return path;
+      return { absolute: path, display: path };
     };
   }
 
@@ -21,8 +30,26 @@ export function createPathResolver(rootDir: string | undefined): PathResolver {
     const realRoot = await canonical(root);
     const realTarget = await canonical(resolve(root, path));
     if (!isWithin(realRoot, realTarget)) throw outsideMessage();
-    return realTarget;
+    return { absolute: realTarget, display: path, root: realRoot };
   };
+}
+
+/**
+ * Rewrite a filesystem error so it speaks in the model's own path vocabulary.
+ *
+ * Node's `fs` errors embed the absolute path that was opened, which is the resolved
+ * path here. That path is not something the model supplied and, inside a root
+ * directory, not something it may learn. Replacing it with the path the model gave
+ * keeps the error actionable: the code and the reason survive, the location does not.
+ */
+export function hideResolvedPath(error: unknown, path: ResolvedPath): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  let text = message;
+  if (path.absolute !== path.display) text = text.replaceAll(path.absolute, path.display);
+  if (path.root !== undefined) text = text.replaceAll(path.root, ".");
+  return error instanceof Error && text === message
+    ? error
+    : Object.assign(new Error(text), { cause: error });
 }
 
 function requireAbsolutePath(path: string): void {

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition } from "../tools/definition.js";
-import { createPathResolver, pathRule } from "./paths.js";
+import { createPathResolver, hideResolvedPath, pathRule } from "./paths.js";
 import type { ReadPathArgs, ReadToolOptions } from "./options.js";
 
 /** Create an opt-in PNG/JPEG/GIF/WebP reader returning a Base64 image block. */
@@ -17,7 +17,13 @@ export function createReadImageTool(options: ReadToolOptions = {}): ToolDefiniti
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ path }, ctx) => {
-      const bytes = await readFile(await toPath(path), { signal: ctx.signal });
+      const target = await toPath(path);
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(target.absolute, { signal: ctx.signal });
+      } catch (error) {
+        throw hideResolvedPath(error, target);
+      }
       return { content: [{ type: "image", mimeType: imageMimeType(bytes), data: bytes.toString("base64") }] };
     },
   });

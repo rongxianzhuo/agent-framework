@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition } from "../tools/definition.js";
 import { textResult } from "../tools/results.js";
-import { createPathResolver, pathRule } from "./paths.js";
+import { createPathResolver, hideResolvedPath, pathRule } from "./paths.js";
 import type { WriteFileArgs, WriteFileToolOptions } from "./options.js";
 
 /** Create or overwrite a UTF-8 file. Parent directories must already exist. */
@@ -21,9 +21,13 @@ export function createWriteFileTool(options: WriteFileToolOptions = {}): ToolDef
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ path, content }, ctx) => {
-      const absolute = await toPath(path);
+      const target = await toPath(path);
       ctx.signal?.throwIfAborted();
-      await writeFile(absolute, content, { encoding: "utf8", flag: "w", signal: ctx.signal });
+      try {
+        await writeFile(target.absolute, content, { encoding: "utf8", flag: "w", signal: ctx.signal });
+      } catch (error) {
+        throw hideResolvedPath(error, target);
+      }
       return textResult(`Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${path}.`);
     },
   });

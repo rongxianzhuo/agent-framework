@@ -32,10 +32,12 @@ import { fauxClient } from "agent-framework/faux";
 import { runConformance, formatResults, allPassed } from "agent-framework/conformance";
 import {
   createEditFileTool,
+  createListDirectoryTool,
   createReadFileTool,
   createReadImageTool,
   createWriteFileTool,
   type EditFileArgs,
+  type ListDirectoryArgs,
   type ReadFileArgs,
   type WriteFileArgs,
 } from "agent-framework/tools";
@@ -108,11 +110,15 @@ export function eventFields(event: AgentEvent): string {
 // --- Built-in file tools ---------------------------------------------------
 
 export const fileTools = [
+  createListDirectoryTool({ maxEntries: 500, rootDir: "/srv/workspace" }),
   createReadFileTool({ maxBytes: 1024 * 1024, rootDir: "/srv/workspace" }),
   createReadImageTool({ name: "inspect_image", timeoutMs: 10_000, rootDir: "/srv/workspace" }),
   createWriteFileTool({ rootDir: "/srv/workspace" }),
   createEditFileTool({ timeoutMs: 5_000, rootDir: "/srv/workspace" }),
 ];
+
+const listArgs: ListDirectoryArgs = { path: "src" };
+export const listing = listArgs;
 
 // The editor's argument names, and `replace_all`, are documented exactly so.
 const editArgs: EditFileArgs = { file_path: "/a.txt", old_string: "a", new_string: "b", replace_all: true };

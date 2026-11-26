@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Agent } from "agent-framework";
-import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createListDirectoryTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 import { fauxClient } from "agent-framework/faux";
 
 const textPath = resolve("builtin-text.txt");
@@ -31,6 +31,10 @@ assert.deepEqual(outputs[0].content, [{ type: "text", text: "Hello, 内置工具
 assert.deepEqual(outputs[1].content, [{ type: "image", mimeType: "image/png", data: base64 }]);
 await assert.rejects(createReadFileTool({ rootDir }).execute({ path: "../escape.txt" }, { callId: "test", turn: 1 }), /must stay inside/);
 await assert.rejects(createReadFileTool().execute({ path: "relative.txt" }, { callId: "test", turn: 1 }), /absolute file path/);
+const listed = await createListDirectoryTool({ rootDir }).execute({ path: "." }, { callId: "list", turn: 1 });
+assert.match(listed.content[0].text, /builtin-text\.txt/);
+assert.doesNotMatch(JSON.stringify(listed), new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+await assert.rejects(createListDirectoryTool({ rootDir }).execute({ path: ".." }, { callId: "list", turn: 1 }), /must stay inside/);
 await assert.rejects(createReadFileTool().execute({ path: imagePath }, { callId: "test", turn: 1 }), /binary data/);
 const textBytes = Buffer.byteLength("Hello, 内置工具!", "utf8");
 assert.deepEqual((await createReadFileTool({ maxBytes: textBytes }).execute({ path: textPath }, { callId: "test", turn: 1 })).content,

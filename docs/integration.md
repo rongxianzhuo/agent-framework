@@ -480,13 +480,14 @@ return jsonResult({ rows: 12, took: "40ms" }); // content: pretty JSON, details:
 ## Built-in file tools
 
 ```ts
-import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createListDirectoryTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
   model,
   system: "You are a coding agent.",
   tools: [
+    createListDirectoryTool({ rootDir: "/srv/workspace" }),
     createReadFileTool({ maxBytes: 1024 * 1024, rootDir: "/srv/workspace" }), // 1 MiB
     createReadImageTool({ name: "inspect_image", timeoutMs: 10_000, rootDir: "/srv/workspace" }),
     createWriteFileTool({ rootDir: "/srv/workspace" }),
@@ -499,7 +500,8 @@ The text reader returns `ToolDefinition<ReadFileArgs>` and the image reader
 returns `ToolDefinition<ReadPathArgs>`. Both accept `{ path: string }`; the text
 reader additionally supports the paired `offset` and `limit` fields. The writer returns
 `ToolDefinition<WriteFileArgs>` with `{ path: string, content: string }` arguments.
-The editor returns `ToolDefinition<EditFileArgs>` with the arguments shown below.
+The editor returns `ToolDefinition<EditFileArgs>` with the arguments shown below, and
+the lister returns `ToolDefinition<ListDirectoryArgs>` with `{ path: string }`.
 
 - `createReadFileTool()` defaults to the name `read_file` and returns UTF-8 text
   via `textResult()`. Before decoding it rejects NUL bytes, dense non-text control
@@ -520,6 +522,14 @@ The editor returns `ToolDefinition<EditFileArgs>` with the arguments shown below
 - `createEditFileTool()` defaults to `edit_file`. It edits an existing UTF-8 file
   by literal text replacement and returns a text confirmation with the replacement
   count. Missing files, binary content and invalid UTF-8 are rejected before writing.
+- `createListDirectoryTool()` defaults to `list_directory` and returns the immediate
+  entries of one directory, sorted by name, one per line. A trailing `/` marks a
+  directory, a trailing `@` marks a symbolic link, and a plain name is a regular
+  file. Subdirectories are not descended into, so the listing stays one level deep
+  and costs the same for a directory of ten entries or ten thousand. `maxEntries`
+  caps the returned names and appends a line saying how many were withheld; omitting
+  it lists everything. Symlinks are listed by name and are not followed, so a link
+  out of the root is visible as a name but cannot be traversed through this tool.
 
 ### Absolute paths, or a rootDir
 
@@ -560,9 +570,16 @@ instruction the model gets on how to form a path. Passing `rootDir` therefore
 changes what the model is told, not just what the tool accepts, while revealing
 nothing about the filesystem outside the sandbox.
 
+Filesystem errors follow the same rule. Node's `fs` errors carry the absolute path
+that `open` or `scandir` received, which is the resolved path, so each tool replaces
+it with the path the model supplied and drops the root prefix. A missing file reads
+`ENOENT: no such file or directory, open 'notes/todo.txt'`: the model learns what
+went wrong and which of its own paths was wrong, not where the sandbox lives.
+
 Readers accept `ReadToolOptions` and the writer accepts `WriteFileToolOptions`:
 optional `name`, `timeoutMs` and `rootDir`. The editor accepts the same settings
-through `EditFileToolOptions`. The text reader
+through `EditFileToolOptions`, and the lister through `ListDirectoryToolOptions`,
+which adds `maxEntries`. The text reader
 uses the extended `ReadFileToolOptions`, which additionally accepts `maxBytes`.
 This is developer configuration, not a model-provided tool argument. It must be
 a non-negative safe integer, measured in bytes rather than Unicode characters.

@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition } from "../tools/definition.js";
 import { textResult } from "../tools/results.js";
-import { createPathResolver, pathRule } from "./paths.js";
+import { createPathResolver, hideResolvedPath, pathRule } from "./paths.js";
 import { requireTextContent } from "./text.js";
 import type { EditFileArgs, EditFileToolOptions } from "./options.js";
 
@@ -24,9 +24,14 @@ export function createEditFileTool(options: EditFileToolOptions = {}): ToolDefin
     },
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     execute: async ({ file_path, old_string, new_string, replace_all = false }, ctx) => {
-      const absolute = await toPath(file_path);
+      const target = await toPath(file_path);
       if (old_string.length === 0) throw new Error("old_string must not be empty.");
-      const bytes = await readFile(absolute, { signal: ctx.signal });
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(target.absolute, { signal: ctx.signal });
+      } catch (error) {
+        throw hideResolvedPath(error, target);
+      }
       requireTextContent(bytes);
       const text = bytes.toString("utf8");
       const first = text.indexOf(old_string);
@@ -40,7 +45,11 @@ export function createEditFileTool(options: EditFileToolOptions = {}): ToolDefin
         ? text.slice(0, first) + new_string + text.slice(first + old_string.length)
         : parts.join(new_string);
       ctx.signal?.throwIfAborted();
-      await writeFile(absolute, updated, { encoding: "utf8", flag: "w", signal: ctx.signal });
+      try {
+        await writeFile(target.absolute, updated, { encoding: "utf8", flag: "w", signal: ctx.signal });
+      } catch (error) {
+        throw hideResolvedPath(error, target);
+      }
       return textResult(`Replaced ${count} occurrence${count === 1 ? "" : "s"} in ${file_path}.`);
     },
   });

@@ -43,6 +43,17 @@ export interface ReadPathArgs {
   path: string;
 }
 
+/** A directory whose immediate entries should be listed. */
+export interface ListDirectoryArgs {
+  path: string;
+}
+
+/** Directory-listing configuration, including how much of a long listing to show. */
+export interface ListDirectoryToolOptions extends ReadToolOptions {
+  /** Maximum entries to return. Omit for no limit; zero lists nothing but the count. */
+  maxEntries?: number;
+}
+
 /** Read all text, or skip zero-based lines and return at most limit lines. */
 export type ReadFileArgs = ReadPathArgs & (
   | { offset?: never; limit?: never }

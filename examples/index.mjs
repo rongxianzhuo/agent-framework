@@ -27,7 +27,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { Agent } from "agent-framework";
-import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createListDirectoryTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 import { openaiClient } from "agent-framework/openai";
 
 const apiKey = process.env.OPENAI_API_KEY ?? "";
@@ -60,6 +60,7 @@ const agent = new Agent({
   model,
   historyFile: fileURLToPath(new URL("./history.json", import.meta.url)),
   tools: [
+    createListDirectoryTool({ rootDir }),
     createReadFileTool({ maxBytes: 16 * 1024, rootDir }),
     createReadImageTool({ rootDir }),
     createWriteFileTool({ rootDir }),

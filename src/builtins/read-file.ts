@@ -1,7 +1,7 @@
 import { open, readFile } from "node:fs/promises";
 import { defineTool, type ToolDefinition } from "../tools/definition.js";
 import { textResult } from "../tools/results.js";
-import { createPathResolver, pathRule } from "./paths.js";
+import { createPathResolver, hideResolvedPath, pathRule } from "./paths.js";
 import { requireTextContent } from "./text.js";
 import type { ReadFileArgs, ReadFileToolOptions } from "./options.js";
 
@@ -36,10 +36,15 @@ export function createReadFileTool(options: ReadFileToolOptions = {}): ToolDefin
         (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1)) {
         throw new Error("offset must be a non-negative safe integer and limit must be a positive safe integer.");
       }
-      const absolute = await toPath(path);
-      const bytes = maxBytes === undefined
-        ? await readFile(absolute, { signal: ctx.signal })
-        : await readWithinLimit(absolute, maxBytes, ctx.signal);
+      const target = await toPath(path);
+      let bytes: Buffer;
+      try {
+        bytes = maxBytes === undefined
+          ? await readFile(target.absolute, { signal: ctx.signal })
+          : await readWithinLimit(target.absolute, maxBytes, ctx.signal);
+      } catch (error) {
+        throw hideResolvedPath(error, target);
+      }
       requireTextContent(bytes);
       const text = bytes.toString("utf8");
       return textResult(offset === undefined || limit === undefined ? text : selectLines(text, offset, limit));

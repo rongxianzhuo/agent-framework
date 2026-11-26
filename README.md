@@ -228,13 +228,14 @@ const tools: AnyTool[] = [read, search];
 ## Built-in file tools
 
 ```ts
-import { createEditFileTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
+import { createEditFileTool, createListDirectoryTool, createReadFileTool, createReadImageTool, createWriteFileTool } from "agent-framework/tools";
 
 const agent = new Agent({
   client,
   model,
   system: "You are a coding agent.",
   tools: [
+    createListDirectoryTool({ rootDir: "/srv/workspace" }),
     createReadFileTool({ maxBytes: 1024 * 1024, rootDir: "/srv/workspace" }), // 1 MiB
     createReadImageTool({ timeoutMs: 10_000, rootDir: "/srv/workspace" }),
     createWriteFileTool({ rootDir: "/srv/workspace" }),
@@ -245,12 +246,21 @@ const agent = new Agent({
 
 Without `rootDir`, every file tool requires an absolute path. Set it to an absolute
 directory and `path` becomes relative to that directory, with results outside it
-rejected; absolute paths are still accepted when they land inside. The directory
-itself is validated when the tool is created. `read_file` returns UTF-8 text; `read_image`
+rejected; absolute paths are still accepted when they land inside, and symbolic
+links are resolved before the boundary is checked. The directory itself is validated
+when the tool is created. `read_file` returns UTF-8 text; `read_image`
 returns a Base64 image block for PNG, JPEG, GIF or WebP, identified by file
 signature. Each factory accepts optional `name`, `timeoutMs` and `rootDir` settings
 and returns an ordinary `ToolDefinition`. Registration is explicit; permissions still
 use your existing `onToolCall` hook. Importing `agent-framework` alone loads none of these tools.
+The configured directory never reaches the model: descriptions state the rule
+without the path, and filesystem errors are rewritten to quote the path the model
+gave rather than the resolved one.
+
+`list_directory` accepts `{ path }` and returns the immediate entries of one
+directory, sorted by name, one per line. A trailing `/` marks a directory and a
+trailing `@` marks a symbolic link; subdirectories are never descended into. An
+optional `maxEntries` caps the count and reports how many names were withheld.
 
 `write_file` accepts `{ path, content }` and creates or overwrites a UTF-8 text
 file. Empty content clears the file. Parent directories must already exist, and
@@ -399,10 +409,10 @@ including one you write yourself — and returns pass/fail data.
 
 - **`docs/integration.md`** — the guide: tools, hooks, errors, writing an adapter,
   and the things that surprise people.
-- **`examples/index.mjs`** — a multi-turn chat bot with `read_file`, `read_image`,
-  `write_file` and `edit_file` tools. Its file tools are rooted at the directory you
-  start it from, so give a path relative to it, for a text file or a PNG/JPEG/GIF/WebP
-  image. Configure a vision-capable endpoint/model for image understanding;
+- **`examples/index.mjs`** — a multi-turn chat bot with `list_directory`, `read_file`,
+  `read_image`, `write_file` and `edit_file` tools. Its file tools are rooted at the
+  directory you start it from, so give a path relative to it, for a text file or a
+  PNG/JPEG/GIF/WebP image. Configure a vision-capable endpoint/model for image understanding;
   the default endpoint is DeepSeek. It prints tool
   activity and the model's reasoning above each answer, which is
   what `thinking_delta` events are for. `Agent` carries the transcript between
