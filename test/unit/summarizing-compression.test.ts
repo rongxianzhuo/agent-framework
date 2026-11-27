@@ -28,9 +28,9 @@ function summaryClient(text = "The user asked for a refactor; it is finished.") 
 
 const context = (messages: Message[], usageValue?: Usage) => ({
   messages,
-  request: { model: "main", messages, tools: [] },
+  usage: usageValue,
+  turn: 1,
   signal: undefined,
-  lastRequest: usageValue === undefined ? undefined : { model: "main", usage: usageValue },
 });
 
 describe("createSummarizingCompression", () => {
@@ -180,7 +180,7 @@ describe("createSummarizingCompression", () => {
 });
 
 describe("the bundled strategy inside an Agent", () => {
-  it("replaces history and sends the shortened transcript on the next request", async () => {
+  it("replaces history at the end of the turn and sends the shortened transcript next", async () => {
     const summarizer = summaryClient("Earlier: the user described a bug.");
     const client = fauxClient({ turns: [
       { text: "answer one", usage: usage(5_000) },
@@ -188,17 +188,21 @@ describe("the bundled strategy inside an Agent", () => {
     ] });
     const agent = new Agent({
       system: prompt, client, model: "main",
-      contextCompression: createSummarizingCompression({ client: summarizer, model: "summary-model", threshold: 1_000, keepRecentMessages: 2 }),
+      contextCompression: createSummarizingCompression({ client: summarizer, model: "summary-model", threshold: 1_000, keepRecentMessages: 1 }),
     });
 
     await agent.run("first question");
-    expect(agent.messages).toHaveLength(3);
+    const afterFirst = agent.messages;
+    expect(afterFirst[0]).toEqual(system);
+    expect(JSON.stringify(afterFirst)).toContain("Earlier: the user described a bug.");
+    expect(JSON.stringify(afterFirst)).not.toContain("first question");
+    expect(afterFirst).toHaveLength(3);
 
     await agent.run("second question");
     const sent = client.requests[1]?.messages ?? [];
     expect(sent[0]).toEqual(system);
-    expect(sent.some((m) => m.role === "user" && JSON.stringify(m.content).includes("Earlier: the user described a bug."))).toBe(true);
-    expect(client.requests[1]?.messages.length).toBeLessThan(5);
+    expect(JSON.stringify(sent)).toContain("Earlier: the user described a bug.");
+    expect(sent.at(-1)).toMatchObject({ role: "user", content: [{ type: "text", text: "second question" }] });
   });
 
   it("carries a previous summary into the next summary", async () => {
@@ -265,11 +269,10 @@ describe("the bundled strategy inside an Agent", () => {
       ] });
       const agent = new Agent({
         system: prompt, client, model: "main", historyFile: file,
-        contextCompression: createSummarizingCompression({ client: summarizer, model: "summary-model", threshold: 1_000, keepRecentMessages: 2 }),
+        contextCompression: createSummarizingCompression({ client: summarizer, model: "summary-model", threshold: 1_000, keepRecentMessages: 1 }),
       });
 
       await agent.run("first");
-      await agent.run("second");
       const saved = JSON.parse(await readFile(file, "utf8")) as Message[];
       expect(saved.every((message) => message.role !== "system")).toBe(true);
       expect(JSON.stringify(saved)).toContain("persisted summary");

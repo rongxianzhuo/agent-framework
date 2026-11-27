@@ -1,4 +1,3 @@
-import type { LLMRequest } from "../core/client.js";
 import type { Message } from "../core/messages.js";
 import type { Usage } from "../core/usage.js";
 
@@ -10,15 +9,32 @@ export interface LastRequestInfo {
   usage?: Usage;
 }
 
-/** Snapshots provided before each model request, including turns after tools. */
+/**
+ * What a strategy sees at the end of a turn.
+ *
+ * This is the moment the response has arrived and any tool results are already in
+ * the transcript, so `usage` is the exact cost of the request that just finished
+ * and `messages` is exactly what the next request would send. Measuring here
+ * avoids the lag of reading a previous request's usage before sending the next.
+ */
 export interface CompressionContext {
+  /** The transcript after this turn: the response, plus any tool results. */
   messages: readonly Message[];
-  request: LLMRequest;
+  /** Usage the provider reported for the response that ended this turn. */
+  usage: Usage | undefined;
+  /** 1-based turn index within the run. */
+  turn: number;
   signal: AbortSignal | undefined;
-  lastRequest: LastRequestInfo | undefined;
 }
 
-/** Application-owned trigger and compression algorithm. No default policy. */
+/**
+ * Application-owned trigger and compression algorithm. No default policy beyond
+ * `createSummarizingCompression()`.
+ *
+ * `compress` returns the whole transcript to continue from, including the leading
+ * system message when there is one. Returning the messages unchanged declines to
+ * compress this turn.
+ */
 export interface ContextCompressionStrategy {
   shouldCompress(context: CompressionContext): boolean | Promise<boolean>;
   compress(context: CompressionContext): readonly Message[] | Promise<readonly Message[]>;

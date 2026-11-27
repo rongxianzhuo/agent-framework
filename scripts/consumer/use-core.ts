@@ -49,7 +49,7 @@ export async function go(): Promise<string> {
 
 export async function converse(input: AgentInput): Promise<RunResult> {
   const strategy: ContextCompressionStrategy = {
-    shouldCompress: ({ lastRequest }: CompressionContext) => (lastRequest?.usage?.inputTokens ?? 0) > 200_000,
+    shouldCompress: ({ usage }: CompressionContext) => (usage?.inputTokens ?? 0) > 200_000,
     compress: ({ messages }) => [...messages],
   };
   const options: AgentOptions = {

@@ -98,6 +98,8 @@ export {
   type ToolCallHook,
   type ToolResultContext,
   type ToolResultHook,
+  type TurnEndContext,
+  type TurnEndHook,
 } from "./runtime/hooks.js";
 export {
   describeTranscriptProblems,

@@ -3,7 +3,7 @@ import type { LLMClient, LLMEvent, LLMRequest, LLMStreamOptions } from "../core/
 import { run, type RunOptions, type RunResult } from "./run.js";
 import { describeTranscriptProblems, findTranscriptProblems } from "./transcript.js";
 import type { CompressionContext, ContextCompressionStrategy, LastRequestInfo } from "./compression.js";
-import type { BeforeRequestHook, RunHooks } from "./hooks.js";
+import type { TurnEndHook, RunHooks } from "./hooks.js";
 import { loadHistory, saveHistory } from "./history.js";
 import { resolve } from "node:path";
 
@@ -150,27 +150,17 @@ export class Agent {
   }
 
   #compressionHooks(hooks: RunHooks | undefined, strategy: ContextCompressionStrategy): RunHooks {
-    const compress: BeforeRequestHook = async ({ request, signal }) => {
-      const messages = copyMessages(request.messages);
-      const context: CompressionContext = {
-        messages,
-        request: { ...request, messages, tools: structuredClone(request.tools) },
-        signal,
-        lastRequest: this.lastRequest,
-      };
-      if (request.providerOptions !== undefined) {
-        context.request.providerOptions = structuredClone(request.providerOptions);
-      }
+    const compress: TurnEndHook = async ({ messages, message, turn, signal }) => {
+      const snapshot = copyMessages([...messages]);
+      const context: CompressionContext = { messages: snapshot, usage: message.usage, turn, signal };
       if (!await strategy.shouldCompress(context) || signal?.aborted) return;
-      return {
-        request: { ...request, messages: await strategy.compress(context) },
-        replaceHistory: true,
-      };
+      const compressed = copyMessages([...(await strategy.compress(context))]);
+      return compressed;
     };
-    const before = hooks?.onBeforeRequest;
+    const ended = hooks?.onTurnEnd;
     return {
       ...hooks,
-      onBeforeRequest: [compress, ...(before === undefined ? [] : Array.isArray(before) ? before : [before])],
+      onTurnEnd: [compress, ...(ended === undefined ? [] : Array.isArray(ended) ? ended : [ended])],
     };
   }
 

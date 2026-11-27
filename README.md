@@ -331,14 +331,16 @@ const agent = new Agent({
 });
 ```
 
-Once the latest request reaches the threshold, the oldest part of the conversation
-is replaced by one summary message placed directly after the system prompt, and the
-recent messages are kept verbatim. The trigger compares `inputTokens + outputTokens`
-from the previous request, since the reply it produced stays in the context.
-A summary request that fails leaves history untouched and the run continues.
-The summary is an ordinary message, so `historyFile` persists it and later
-compressions fold it into the next summary. Omit `contextCompression` or set it to
-`null` to disable compression.
+At the end of each turn, when the response and any tool results are already in the
+transcript, the strategy checks the usage the provider just reported. Once it
+reaches the threshold, the oldest part of the conversation is replaced by one
+summary message placed directly after the system prompt, and the recent messages
+are kept verbatim. Measuring at that moment uses the exact cost of the request that
+just finished, so the history `Agent` stores and `historyFile` persists is already
+the compressed one. A summary request that fails leaves history untouched and the
+run continues. The summary is an ordinary message, so `historyFile` persists it and
+later compressions fold it into the next summary. Omit `contextCompression` or set
+it to `null` to disable compression.
 
 You can also supply your own strategy:
 
@@ -348,23 +350,21 @@ const agent = new Agent({
   model: "gpt-4o-mini",
   system: "Be helpful.",
   contextCompression: {
-    shouldCompress: ({ lastRequest }) => {
-      const usage = lastRequest?.usage;
-      return usage !== undefined && usage.inputTokens + usage.outputTokens > 200_000;
-    },
+    shouldCompress: ({ usage }) =>
+      usage !== undefined && usage.inputTokens + usage.outputTokens > 200_000,
     compress: ({ messages, signal }) => summarizeHistory(messages, signal),
   },
 });
 ```
 
-`summarizeHistory` is your function returning a replacement `Message[]`. Checks
-run before every model request, including turns after tools; valid compression
-permanently replaces history. Omit the strategy or set it to `null` to disable it.
+`summarizeHistory` is your function returning a replacement `Message[]`, including
+the leading system message. The check runs at the end of every turn, including
+turns that ran tools; a valid replacement becomes the history the run continues
+from. Omit the strategy or set it to `null` to disable it.
 `agent.lastRequest` exposes the latest individual request's model, provider and
-optional usage across runs. It is not the cumulative `RunResult.usage`, nor an
-exact estimate of the next request. See the guide for failure and hook semantics.
+optional usage across runs. See the guide for failure and hook semantics.
 
-## Hooks: the caller's three decisions
+## Hooks: the caller's four decisions
 
 The core has no opinions about how much context fits, which tools are allowed, or
 what a caller's UI should display. Those belong to the embedding agent, and each
@@ -395,20 +395,29 @@ const result = await run({
         block.type === "text" ? { ...block, text: redact(block.text) } : block,
       ),
     }),
+
+    // Runs once per turn, after the response and its tool results are in.
+    // Return a replacement transcript to change what the run continues from.
+    onTurnEnd: ({ messages, message }) => {
+      const usage = message.usage;
+      return usage !== undefined && usage.inputTokens > 150_000 ? summarize(messages) : undefined;
+    },
   },
 });
 ```
 
-Every hook is optional. `onBeforeRequest` and `onToolResult` chain, so a list of
-them composes; `onToolCall` short-circuits, because a guard that says no must not
-be overridden by a later hook that means to allow. A hook that throws ends the run
-with `kind: "hook"` — a guard that crashes is not a guard.
+Every hook is optional. `onBeforeRequest`, `onToolResult` and `onTurnEnd` chain, so a
+list of them composes; `onToolCall` short-circuits, because a guard that says no
+must not be overridden by a later hook that means to allow. A hook that throws ends
+the run with `kind: "hook"` — a guard that crashes is not a guard.
 
 `onBeforeRequest` returns a plain request for temporary changes. To permanently
 replace history, return `{ request: updatedRequest, replaceHistory: true }`.
-Only messages persist; model and generation settings remain per-request. The
-framework validates the replacement before committing it, and `Agent` retains
-the resulting history. Compression timing and strategy belong to the caller.
+Only messages persist; model and generation settings remain per-request.
+`onTurnEnd` replaces history directly by returning the transcript to continue from,
+which is where context compression belongs: `message.usage` is the exact cost of the
+request that just finished, and `messages` is what the next request would send. The
+framework validates either replacement before committing it.
 
 `onToolCall` can also return `{ result }` to answer without running the tool,
 which is how caching and test stubs work.

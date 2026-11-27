@@ -49,7 +49,7 @@ import {
 // The guide's compression section: a strategy is application code, and both
 // methods may be sync or async.
 const strategy: ContextCompressionStrategy = {
-  shouldCompress: ({ lastRequest }) => lastRequest?.usage !== undefined,
+  shouldCompress: ({ usage }) => usage !== undefined,
   compress: async ({ messages }) => [...messages],
 };
 

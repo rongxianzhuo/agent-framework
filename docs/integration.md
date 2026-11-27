@@ -372,16 +372,13 @@ signal and a summariser; the interface stays available for your own policy.
 import { Agent, type ContextCompressionStrategy } from "agent-framework";
 
 const strategy: ContextCompressionStrategy = {
-  shouldCompress: ({ lastRequest }) => {
-    const usage = lastRequest?.usage;
-    return usage !== undefined && usage.inputTokens + usage.outputTokens > 200_000;
-  },
+  shouldCompress: ({ usage }) =>
+    usage !== undefined && usage.inputTokens + usage.outputTokens > 200_000,
   compress: ({ messages, signal }) => summarizeHistory(messages, signal),
 };
 
 const agent = new Agent({ client, model: "gpt-4o-mini", system: "Be helpful.", contextCompression: strategy });
 await agent.run("Hello");
-console.log(agent.lastRequest?.usage); // usage for the latest model request only
 ```
 
 `summarizeHistory` is application code that returns a complete replacement
@@ -389,19 +386,21 @@ console.log(agent.lastRequest?.usage); // usage for the latest model request onl
 system instructions and any tool-call/result pairs you still need. Both strategy
 methods can be synchronous or asynchronous. Each receives `CompressionContext`:
 
-- `messages`: a snapshot of the current transcript.
-- `request`: the request before user hooks, including tool definitions and output
-  settings, for your own budget estimate. Its messages share the context snapshot.
+- `messages`: the transcript after this turn — the response, plus any tool results.
+  This is exactly what the next request would send.
+- `usage`: what the provider reported for the response that ended this turn, or
+  `undefined` when it reported none.
+- `turn`: the 1-based turn index within the run.
 - `signal`: the current run's cancellation signal, if supplied.
-- `lastRequest`: the latest attempted model request's model, provider and optional
-  `usage`; absent before the first request.
 
-Agent checks once before every model request, including requests following tool
-results within the same `run()`. If `shouldCompress` returns true, `compress` runs
-once. Its output uses the existing permanent history replacement mechanism.
-The internal strategy hook runs before user `onBeforeRequest` hooks, including
-per-call overrides. Later temporary edits do not alter the compressed history;
-a later explicit permanent replacement wins. Compression never re-executes tools.
+Agent checks once at the end of every turn, after the response and its tool results
+are in the transcript. If `shouldCompress` returns true, `compress` runs once and
+its output replaces the history the run continues from. Measuring here uses the
+exact usage of the request that just finished, rather than a previous request's
+number that the transcript has since outgrown.
+
+The internal strategy runs before user `onTurnEnd` hooks, including per-call
+overrides. Compression never re-executes tools.
 
 The whole hook chain and both outgoing/stored transcripts must validate before
 history is committed. Predicate/compression exceptions return `kind: "hook"`;
@@ -444,11 +443,9 @@ const compression = createSummarizingCompression({
 const agent = new Agent({ client, model: "gpt-4o", system: "Be helpful.", contextCompression: compression });
 ```
 
-The trigger reads `inputTokens + outputTokens` from `lastRequest`. The current
-request's prompt does not include the reply that request just produced, and that
-reply stays in the context, so adding it gives a closer estimate of the next
-prompt. Cache reads are not added: `inputTokens` already contains them. When no
-usage was reported, the strategy does nothing rather than guess.
+The trigger reads `inputTokens + outputTokens` from the response that just ended.
+Cache reads are not added: `inputTokens` already contains them. When no usage was
+reported, the strategy does nothing rather than guess.
 
 `client` and `model` are both required and independent of the agent's own. A
 summary rarely needs the expensive model, and reusing the agent's client would
@@ -456,7 +453,9 @@ report the summary call's own usage as the latest request, hiding how large the
 conversation had actually become. Requiring `model` keeps the cost of a summary
 visible in the configuration instead of inheriting it silently.
 
-The result is `[system, summary, ...kept]`. The summary is a single `user` message
+The result is `[system, summary, ...kept]`, produced at the end of the turn that
+crossed the threshold, so the history `Agent` stores and persists is already the
+compressed one. The summary is a single `user` message
 starting with `[Earlier conversation summary]`, placed directly after the system
 prompt. It is an ordinary message rather than part of the system prompt so that it
 survives `saveHistory()`, which drops system messages, and `replaceMessages()`,
@@ -901,7 +900,7 @@ tool was interrupted" invites it to redo work you just cancelled.
 
 ## Hooks
 
-Three places where the core hands control back to you. All optional.
+Four places where the core hands control back to you. All optional.
 
 ### `onBeforeRequest` — rewrite the request
 
@@ -923,13 +922,13 @@ The example above trims only this request; the next turn starts from the stored
 history again. The explicit equivalent is
 `{ request: updatedRequest, replaceHistory: false }` (false is the default).
 
-For permanent compression, return `replaceHistory: true`:
+For a permanent change from this hook, return `replaceHistory: true`:
 
 ```ts
 hooks: {
   onBeforeRequest: async ({ request, signal }) => {
-    if (!shouldCompress(request)) return;
-    const messages = await compressHistory(request.messages, signal);
+    if (!needsTrimming(request)) return;
+    const messages = await trimHistory(request.messages, signal);
     return {
       request: { ...request, messages },
       replaceHistory: true,
@@ -938,13 +937,10 @@ hooks: {
 }
 ```
 
-`shouldCompress` and `compressHistory` are application functions when you write
-your own strategy; `createSummarizingCompression()` covers the common case. A
-strategy written by hand chooses its own threshold and summary format. This works
-inside one `run()`, before each model request. Only `request.messages` replaces
-history; changes to model, tools or generation settings remain per-request.
-The replacement appears in `RunResult.messages`, `run_end`, and `Agent.messages`
-after execution. No archive of the original history is kept automatically.
+Only `request.messages` replaces history; changes to model, tools or generation
+settings remain per-request. The replacement appears in `RunResult.messages`,
+`run_end`, and `Agent.messages` after execution. No archive of the original
+history is kept automatically.
 
 Hooks still chain in order. Each permanent replacement captures the messages
 at that point; later temporary edits affect only the outgoing request. The last
@@ -955,10 +951,11 @@ is cancelled before the commit. Once committed, compression is retained even
 if the following model request fails. An external history array is never replaced
 in place: low-level callers must use the returned `result.messages`.
 
-This is where context management lives: dropping old turns, injecting a reminder,
-swapping the model for a cheap one on later turns, or adding a
-`providerOptions` field. How much history fits is left to the caller, because
-that differs per model and application.
+Use this hook for decisions that depend on the request about to be sent:
+swapping the model for a cheap one on later turns, adding a `providerOptions`
+field, or shrinking a transcript that has grown too large to send at all. For
+context compression keyed to token usage, prefer `onTurnEnd`, which runs with the
+usage the provider just reported.
 
 **Trim by whole exchanges.** An exchange begins at a user message:
 
@@ -977,6 +974,39 @@ Cutting anywhere else can separate an assistant's tool call from the result that
 answers it. If you do break the pairing, `run` stops with `kind: "invalidRequest"`
 and names the message index and call id, before the provider can reject it with a
 much less useful message.
+
+### `onTurnEnd` — rewrite the transcript after a turn
+
+Runs once per turn, after the response has arrived and any tool results it asked
+for are already in the transcript. Return a replacement `Message[]` to change the
+history the run continues from, or nothing to leave it alone.
+
+```ts
+hooks: {
+  onTurnEnd: ({ messages, message, turn }) => {
+    const usage = message.usage;
+    if (usage === undefined || usage.inputTokens < 150_000) return;
+    return summarize(messages);
+  },
+}
+```
+
+This is where context compression belongs, and `Agent`'s `contextCompression`
+option is built on it. The reason is the timing: `message.usage` is the exact cost
+of the request that just finished, and `messages` is exactly what the next request
+would send. Measuring anywhere else means comparing against a request that has
+since grown.
+
+A replacement is persistent — it becomes the history the run continues from and
+the one `Agent` stores at the end. Return the whole array, including the leading
+system message when there is one. The result is validated before it is accepted;
+an unanswered tool call or an orphaned result stops the run with
+`kind: "invalidRequest"` and leaves the previous transcript in place.
+
+`onTurnEnd` runs for every turn, so a turn that requests tools sees them in
+`messages` and a later turn sees the answer. It does not run for a turn whose
+request failed or was cancelled: a cancelled run has no new transcript to hand
+over.
 
 ### `onToolCall` — allow, deny, or answer
 

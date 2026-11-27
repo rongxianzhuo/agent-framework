@@ -70,7 +70,7 @@ export function createSummarizingCompression(
 
   return {
     shouldCompress(context) {
-      const usage = context.lastRequest?.usage;
+      const usage = context.usage;
       if (usage === undefined) return false;
       if (usage.inputTokens + usage.outputTokens < threshold) return false;
       return chooseSplit(context.messages, keepRecent) !== undefined;

@@ -30,6 +30,7 @@ import {
   applyResultHooks,
   deniedExecution,
   resolveHooks,
+  type ResolvedHooks,
   type RunHooks,
 } from "./hooks.js";
 import { describeTranscriptProblems, findTranscriptProblems } from "./transcript.js";
@@ -254,6 +255,9 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
     // --- stop when the model stops asking for tools ------------------------
     if (assistant.toolCalls.length === 0) {
+      const ended = await runTurnEndHooks(messages, assistant, turns, hooks, signal);
+      if (ended.kind === "error") return finish("error", ended.error);
+      messages = ended.messages;
       await emit({ type: "turn_end", turn: turns, toolCallCount: 0 });
       return finish("completed");
     }
@@ -358,9 +362,57 @@ export async function run(options: RunOptions): Promise<RunResult> {
     }
 
     await emit({ type: "turn_end", turn: turns, toolCallCount });
+
+    const ended = await runTurnEndHooks(messages, assistant, turns, hooks, signal);
+    if (ended.kind === "error") return finish("error", ended.error);
+    messages = ended.messages;
   }
 
   return finish("maxTurns");
+}
+
+/**
+ * Run `onTurnEnd` and report the transcript to continue from.
+ *
+ * A hook that throws comes back as a `hook` error and an unusable transcript as
+ * an `invalidRequest` error, rather than being thrown out of `run()`: a turn
+ * that already reached the model should end as a reported outcome, the way a
+ * failed request does.
+ *
+ * The pairing check mirrors the one before each request. A hook is most likely
+ * to separate a tool call from its result, and catching that here names the
+ * offending message while the turn that caused it is still the current one.
+ */
+async function runTurnEndHooks(
+  messages: readonly Message[],
+  message: AssistantMessage,
+  turn: number,
+  hooks: ResolvedHooks,
+  signal: AbortSignal | undefined,
+): Promise<{ kind: "ok"; messages: Message[] } | { kind: "error"; error: NormalizedError }> {
+  if (signal?.aborted) return { kind: "ok", messages: [...messages] };
+
+  let next: readonly Message[];
+  try {
+    next = await hooks.turnEnd({ turn, messages, message, signal });
+  } catch (thrown) {
+    if (thrown instanceof HookError) return { kind: "error", error: thrown.toNormalized() };
+    throw thrown;
+  }
+
+  if (findTranscriptProblems(next).length > 0) return { kind: "error", error: endedError() };
+  return { kind: "ok", messages: [...next] };
+}
+
+/** The error reported when `onTurnEnd` returned an unusable transcript. */
+function endedError(): NormalizedError {
+  const error = normalizeThrown(
+    new Error("The onTurnEnd hook produced a transcript the next request cannot use."),
+    "onTurnEnd",
+  );
+  error.kind = "invalidRequest";
+  error.retryable = false;
+  return error;
 }
 
 // ---------------------------------------------------------------------------

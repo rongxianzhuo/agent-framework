@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   Agent, defineTool, textResult,
-  type CompressionContext, type ContextCompressionStrategy, type LastRequestInfo,
-  type LLMClient, type Message, type Usage,
+  type CompressionContext, type ContextCompressionStrategy, type LLMClient, type Message, type Usage,
 } from "../../src/index.js";
 import { fauxClient } from "../../src/faux.js";
 
@@ -21,9 +20,38 @@ describe("Agent context compression", () => {
     expect(agent.messages).toHaveLength(5);
   });
 
-  it("uses the last single request usage inside a tool loop and across Agent runs", async () => {
-    const seen: (LastRequestInfo | undefined)[] = [];
-    let compressions = 0;
+  it("measures the turn that just finished, not the previous request", async () => {
+    const seen: (Usage | undefined)[] = [];
+    const client = fauxClient({ turns: [{ text: "one", usage: usage(250_000) }, { text: "two", usage: usage(20) }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: ({ usage: current }) => { seen.push(current); return false; },
+      compress: () => { throw new Error("must not compress"); },
+    } });
+    await agent.run("first");
+    await agent.run("second");
+    expect(seen.map(value => value?.inputTokens)).toEqual([250_000, 20]);
+  });
+
+  it("compresses at the end of the turn, before the next request is built", async () => {
+    const order: string[] = [];
+    const client = fauxClient({ turns: [{ text: "one", usage: usage(250_000) }, { text: "two" }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: () => { order.push("check"); return true; },
+      compress: ({ messages }) => { order.push("compress"); return [messages[0]!, ...summary()]; },
+    } });
+    await agent.run("first");
+    expect(order).toEqual(["check", "compress"]);
+    expect(agent.messages).toEqual([{ role: "system", content: [{ type: "text", text: "test prompt" }] }, ...summary()]);
+    await agent.run("second");
+    expect(client.requests[1]?.messages).toEqual([
+      { role: "system", content: [{ type: "text", text: "test prompt" }] },
+      ...summary(),
+      { role: "user", content: [{ type: "text", text: "second" }] },
+    ]);
+  });
+
+  it("runs inside a tool loop, once per turn that ends", async () => {
+    const seen: number[] = [];
     let toolExecutions = 0;
     const tool = defineTool({
       name: "read", description: "Read.", parameters: { type: "object" },
@@ -32,32 +60,45 @@ describe("Agent context compression", () => {
     const client = fauxClient({ turns: [
       { toolCalls: [{ id: "c1", name: "read", args: {} }], usage: usage(200_000) },
       { text: "answer", usage: usage(50) },
-      { text: "next answer", usage: usage(75) },
     ] });
-    const agent = new Agent({ system: "test prompt",
-      client, model: "test", tools: [tool],
-      contextCompression: {
-        shouldCompress: async context => {
-          seen.push(context.lastRequest);
-          if (seen.length === 2) expect(context.messages.at(-1)).toMatchObject({ role: "toolResult" });
-          return (context.lastRequest?.usage?.inputTokens ?? 0) >= 200_000;
-        },
-        compress: async () => { compressions++; return summary(); },
+    const agent = new Agent({ system: "test prompt", client, model: "test", tools: [tool], contextCompression: {
+      shouldCompress: ({ usage: current, turn, messages }) => {
+        seen.push(current?.inputTokens ?? -1);
+        if (turn === 1) expect(messages.at(-1)).toMatchObject({ role: "toolResult" });
+        return (current?.inputTokens ?? 0) >= 200_000;
       },
-    });
-    const first = await agent.run("read");
-    expect(first.usage.inputTokens).toBe(200_050);
-    expect(agent.lastRequest?.usage?.inputTokens).toBe(50);
-    expect(first.messages[0]).toEqual(summary()[0]);
-    await agent.run("followup");
-    expect(seen.map(s => s?.usage?.inputTokens)).toEqual([undefined, 200_000, 50]);
-    expect(compressions).toBe(1);
+      compress: ({ messages }) => [messages[0]!, ...summary()],
+    } });
+    const result = await agent.run("read");
+    expect(seen).toEqual([200_000, 50]);
     expect(toolExecutions).toBe(1);
-    expect(client.requests[1]?.messages).toEqual(summary());
-    expect(client.requests[2]?.messages).toHaveLength(3);
+    expect(result.messages[0]).toMatchObject({ role: "system" });
+    expect(result.messages.some(message => message.role === "toolResult")).toBe(false);
+    expect(result.messages.at(-1)).toMatchObject({ role: "assistant" });
+    expect(agent.messages).toHaveLength(3);
   });
 
-  it("supports a class strategy and makes only one compression attempt per request", async () => {
+  it("reaches historyFile in the same run", async () => {
+    const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const directory = await mkdtemp(join(tmpdir(), "agent-framework-compress-"));
+    try {
+      const file = join(directory, "history.json");
+      const client = fauxClient({ turns: [{ text: "one", usage: usage(250_000) }] });
+      const agent = new Agent({ system: "test prompt", client, model: "test", historyFile: file, contextCompression: {
+        shouldCompress: () => true,
+        compress: ({ messages }) => [messages[0]!, ...summary()],
+      } });
+      await agent.run("first");
+      const saved = JSON.parse(await readFile(file, "utf8")) as Message[];
+      expect(saved).toEqual(summary());
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("supports a class strategy and checks once per turn", async () => {
     class AlwaysCompress implements ContextCompressionStrategy {
       checks = 0;
       compressions = 0;
@@ -71,170 +112,127 @@ describe("Agent context compression", () => {
     expect(strategy.compressions).toBe(1);
   });
 
-  it("runs compression before user hooks, including per-call hooks and temporary edits", async () => {
-    const order: string[] = [];
-    const client = fauxClient({ turns: [{ text: "one" }, { text: "two" }] });
-    const agent = new Agent({ system: "test prompt",
-      client, model: "test",
-      contextCompression: {
-        shouldCompress: () => { order.push("check"); return true; },
-        compress: () => { order.push("compress"); return summary(); },
-      },
-      hooks: { onBeforeRequest: ({ request }) => {
-        order.push("default hook");
-        expect(request.messages).toEqual(summary());
-      } },
-    });
-    await agent.run("one");
-    await agent.run("two", { hooks: { onBeforeRequest: [({ request }) => {
-      order.push("override hook");
-      return { ...request, messages: [{ role: "user", content: [{ type: "text", text: "wire only" }] }] };
-    }] } });
-    expect(order).toEqual(["check", "compress", "default hook", "check", "compress", "override hook"]);
-    expect(client.requests[1]?.messages[0]?.content).toEqual([{ type: "text", text: "wire only" }]);
-    expect(agent.messages[0]).toEqual(summary()[0]);
+  it("accepts a replacement that keeps the system prompt", async () => {
+    const client = fauxClient({ turns: [{ text: "one", usage: usage(250_000) }, { text: "two" }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: () => true,
+      compress: ({ messages }) => [messages[0]!, ...summary()],
+    } });
+    await agent.run("first");
+    await agent.run("second");
+    expect(client.requests[1]?.messages[0]).toMatchObject({ role: "system" });
   });
 
-  it.each(["check", "compress", "invalid", "later hook"])("preserves history on %s failure", async failure => {
-    const client = fauxClient({ turns: [{ text: "never" }] });
-    const agent = new Agent({ system: "test prompt",
-      client, model: "test",
-      contextCompression: {
-        shouldCompress: () => {
-          if (failure === "check") throw new Error("check failed");
-          return true;
-        },
-        compress: () => {
-          if (failure === "compress") throw new Error("compress failed");
-          if (failure === "invalid") return [{ role: "toolResult", toolCallId: "orphan", toolName: "read", content: [], isError: false }];
-          return summary();
-        },
-      },
-    });
-    const result = await agent.run("original", failure === "later hook"
-      ? { hooks: { onBeforeRequest: () => { throw new Error("later hook failed"); } } } : {});
-    expect(result.error?.kind).toBe(failure === "invalid" ? "invalidRequest" : "hook");
+  it("reports a broken transcript as an invalid request without committing it", async () => {
+    const client = fauxClient({ turns: [{ text: "ok", usage: usage(250_000) }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: () => true,
+      compress: () => [{ role: "toolResult", toolCallId: "orphan", toolName: "read", content: [], isError: false }],
+    } });
+    const result = await agent.run("original");
+    expect(result.stopReason).toBe("error");
+    expect(result.error?.kind).toBe("invalidRequest");
     expect(agent.messages).toEqual([
       { role: "system", content: [{ type: "text", text: "test prompt" }] },
       { role: "user", content: [{ type: "text", text: "original" }] },
+      expect.objectContaining({
+        role: "assistant", content: [{ type: "text", text: "ok" }], toolCalls: [], stopReason: "stop",
+      }),
     ]);
-    expect(agent.lastRequest).toBeUndefined();
-    expect(client.requests).toHaveLength(0);
   });
 
-  it("forwards cancellation and never commits cancelled compression", async () => {
-    const controller = new AbortController();
-    const agent = new Agent({ system: "test prompt",
-      client: fauxClient({ turns: [] }), model: "test",
-      contextCompression: {
-        shouldCompress: () => true,
-        compress: async ({ signal }) => {
-          expect(signal).toBe(controller.signal);
-          controller.abort();
-          throw new Error("cancelled");
-        },
+  it.each(["check", "compress"])("reports a %s failure as a hook error without changing history", async failure => {
+    const client = fauxClient({ turns: [{ text: "ok", usage: usage(250_000) }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: () => {
+        if (failure === "check") throw new Error("check failed");
+        return true;
       },
-    });
+      compress: () => {
+        if (failure === "compress") throw new Error("compress failed");
+        return summary();
+      },
+    } });
+    const result = await agent.run("original");
+    expect(result.stopReason).toBe("error");
+    expect(result.error?.kind).toBe("hook");
+    expect(agent.messages[1]).toMatchObject({ role: "user" });
+  });
+
+  it("does not compress a cancelled run", async () => {
+    const controller = new AbortController();
+    const client = fauxClient({ turns: [{ text: "ok", usage: usage(250_000), chunkSize: 1, chunkDelayMs: 20 }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: () => { throw new Error("must not run after an abort"); },
+      compress: () => summary(),
+    } });
+    setTimeout(() => controller.abort(), 10);
     const result = await agent.run("original", { signal: controller.signal });
     expect(result.stopReason).toBe("aborted");
-    expect(agent.messages[1]?.content).toEqual([{ type: "text", text: "original" }]);
-    expect(agent.lastRequest).toBeUndefined();
   });
 
-  it("does not change history when a predicate mutates its snapshots and declines compression", async () => {
-    const client = fauxClient({ turns: [{ text: "ok", usage: usage(100) }, { text: "next" }] });
-    const agent = new Agent({ system: "test prompt",
-      client, model: "test",
-      contextCompression: {
-        shouldCompress: context => {
-          context.messages[0]!.content = [];
-          if (context.lastRequest?.usage) context.lastRequest.usage.inputTokens = 999;
-          return false;
-        },
-        compress: () => { throw new Error("must not compress"); },
-      },
-    });
-    await agent.run("original");
-    const snapshot = agent.lastRequest!;
-    snapshot.usage!.inputTokens = 777;
-    expect(agent.lastRequest?.usage?.inputTokens).toBe(100);
-    await agent.run("next");
-    expect(client.requests[1]?.messages[1]?.content).toEqual([{ type: "text", text: "original" }]);
-  });
-
-  it("reports unknown usage after a failed request instead of reusing old usage", async () => {
-    const seen: (LastRequestInfo | undefined)[] = [];
-    const client = fauxClient({ turns: [
-      { text: "ok", usage: usage(200) }, { error: { kind: "network", message: "offline" } }, { text: "recovered" },
-    ] });
-    const agent = new Agent({ system: "test prompt",
-      client, model: "test",
-      contextCompression: {
-        shouldCompress: ({ lastRequest }) => { seen.push(lastRequest); return false; }, compress: () => [],
-      },
-    });
-    await agent.run("first");
-    await agent.run("second");
-    expect(agent.lastRequest).toEqual({ model: "test", provider: "faux" });
-    await agent.run();
-    expect(seen.map(r => r?.usage?.inputTokens)).toEqual([undefined, 200, undefined]);
-    expect(seen[2]).toEqual({ model: "test", provider: "faux" });
-  });
-
-  it("tracks the actual hook-selected model and leaves missing usage undefined", async () => {
-    const client: LLMClient = {
-      name: "custom",
-      async *stream() {
-        yield { type: "done", message: { role: "assistant", content: [], toolCalls: [], stopReason: "stop", provider: "gateway" } };
-      },
-    };
-    const agent = new Agent({ system: "test prompt", client, model: "default", hooks: {
-      onBeforeRequest: ({ request }) => ({ ...request, model: "selected" }),
-    } });
-    await agent.run("hello");
-    expect(agent.lastRequest).toEqual({ model: "selected", provider: "gateway" });
-  });
-
-  it.each(["throw", "abort"])("clears previous usage when the latest request ends with %s", async mode => {
-    let calls = 0;
-    const controller = new AbortController();
-    const client: LLMClient = {
-      name: "custom",
-      async *stream() {
-        calls++;
-        if (calls === 1) {
-          yield { type: "done", message: { role: "assistant", content: [], toolCalls: [], stopReason: "stop", usage: usage(999) } };
-          return;
-        }
-        if (mode === "abort") {
-          controller.abort();
-          throw Object.assign(new Error("request cancelled"), { name: "AbortError" });
-        }
-        throw new Error("request failed");
-      },
-    };
-    const agent = new Agent({ system: "test prompt", client, model: "test" });
-    await agent.run("one");
-    const result = await agent.run("two", { signal: controller.signal });
-    expect(result.stopReason).toBe(mode === "abort" ? "aborted" : "error");
-    expect(agent.lastRequest).toEqual({ model: "test", provider: "custom" });
-  });
-
-  it("clears metadata on reset and history replacement and isolates instances", async () => {
-    const seen: CompressionContext[] = [];
-    const client = fauxClient({ turns: () => ({ text: "ok", usage: usage(10) }) });
+  it("composes with a user onTurnEnd hook, running the strategy first", async () => {
+    const order: string[] = [];
+    const client = fauxClient({ turns: [{ text: "one", usage: usage(250_000) }, { text: "two" }] });
     const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
-      shouldCompress: context => { seen.push(context); return false; }, compress: () => [],
+      shouldCompress: () => { order.push("check"); return true; },
+      compress: () => { order.push("compress"); return summary(); },
+    }, hooks: { onTurnEnd: [({ messages }) => { order.push("user"); return messages; }] } });
+    await agent.run("first");
+    expect(order).toEqual(["check", "compress", "user"]);
+  });
+
+  it("leaves lastRequest describing the conversation, not the summary", async () => {
+    const client = fauxClient({ turns: [{ text: "one", usage: usage(250_000) }, { text: "two" }] });
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: () => true,
+      compress: () => summary(),
     } });
+    await agent.run("first");
+    expect(agent.lastRequest?.usage?.inputTokens).toBe(250_000);
+  });
+
+  it("does not call compress when the predicate declines", async () => {
+    const seen: CompressionContext[] = [];
+    const agent = new Agent({ system: "test prompt", client: fauxClient({ turns: [{ text: "ok", usage: usage(10) }] }), model: "test", contextCompression: {
+      shouldCompress: context => { seen.push(context); return false; },
+      compress: () => { throw new Error("must not compress"); },
+    } });
+    await agent.run("original");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.usage?.inputTokens).toBe(10);
+  });
+
+  it("does not treat a missing usage as a reason to compress", async () => {
+    const client: LLMClient = {
+      name: "custom",
+      async *stream() {
+        yield { type: "done", message: { role: "assistant", content: [], toolCalls: [], stopReason: "stop" } };
+      },
+    };
+    const seen: (Usage | undefined)[] = [];
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: {
+      shouldCompress: ({ usage: current }) => { seen.push(current); return false; },
+      compress: () => summary(),
+    } });
+    await agent.run("original");
+    expect(seen).toEqual([undefined]);
+  });
+
+  it("isolates instances and clears nothing on reset", async () => {
+    const client = fauxClient({ turns: () => ({ text: "ok", usage: usage(250_000) }) });
+    const strategy: ContextCompressionStrategy = {
+      shouldCompress: () => true,
+      compress: ({ messages }) => [messages[0]!, ...summary()],
+    };
+    const agent = new Agent({ system: "test prompt", client, model: "test", contextCompression: strategy });
     const other = new Agent({ system: "test prompt", client, model: "test" });
     await agent.run("one");
-    expect(other.lastRequest).toBeUndefined();
+    expect(other.messages).toHaveLength(1);
     agent.reset();
-    expect(agent.lastRequest).toBeUndefined();
+    expect(agent.messages).toEqual([{ role: "system", content: [{ type: "text", text: "test prompt" }] }]);
     await agent.run("two");
-    agent.replaceMessages("test prompt", agent.messages.slice(1));
-    expect(agent.lastRequest).toBeUndefined();
-    await agent.run("three");
-    expect(seen.every(c => c.lastRequest === undefined)).toBe(true);
+    expect(agent.messages).toHaveLength(2);
+    expect(agent.messages[1]).toMatchObject({ role: "user" });
   });
 });

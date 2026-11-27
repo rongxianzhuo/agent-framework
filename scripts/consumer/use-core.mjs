@@ -105,17 +105,18 @@ const compressionClient = fauxClient({ turns: [
 const compressedAgent = new Agent({
   client: compressionClient, model: "demo", system: "Be brief.",
   contextCompression: {
-    shouldCompress: ({ lastRequest }) => (lastRequest?.usage?.inputTokens ?? 0) >= 200_000,
-    compress: () => {
+    shouldCompress: ({ usage }) => (usage?.inputTokens ?? 0) >= 200_000,
+    compress: ({ messages }) => {
       compressions++;
-      return [{ role: "user", content: [{ type: "text", text: "strategy summary" }] }];
+      return [messages[0], { role: "user", content: [{ type: "text", text: "strategy summary" }] }];
     },
   },
 });
 await compressedAgent.run("first");
+if (compressions !== 1) failures.push("Compression did not run at the end of the turn");
+if (compressedAgent.messages.length !== 2) failures.push(`Compressed history was not stored, got ${compressedAgent.messages.length} messages`);
 await compressedAgent.run("second");
-if (compressions !== 1 || compressionClient.requests[1]?.messages.length !== 1) failures.push("Compression strategy did not replace history");
-if (compressedAgent.lastRequest?.usage?.inputTokens !== 20) failures.push("Latest request usage was not updated");
+if (compressionClient.requests[1]?.messages.length !== 3) failures.push("Compression strategy did not replace history");
 
 const summarizeClient = fauxClient({ turns: [{ text: "The user introduced themselves as Alex." }] });
 const bundledClient = fauxClient({ turns: [
@@ -125,7 +126,7 @@ const bundledClient = fauxClient({ turns: [
 const bundledAgent = new Agent({
   client: bundledClient, model: "demo", system: "Be brief.",
   contextCompression: createSummarizingCompression({
-    client: summarizeClient, model: "cheap", threshold: 100_000, keepRecentMessages: 2,
+    client: summarizeClient, model: "cheap", threshold: 100_000, keepRecentMessages: 1,
   }),
 });
 await bundledAgent.run("My name is Alex.");

@@ -1,5 +1,5 @@
 /**
- * Hooks: the three places an embedding agent gets to intervene in a run.
+ * Hooks: the four places an embedding agent gets to intervene in a run.
  *
  * The core stays policy-free — it does not know how much context a model can
  * afford, whether a tool is allowed to touch the filesystem, or whether a file
@@ -12,15 +12,20 @@
  *                      This is where permission prompts live.
  *   onToolResult     — rewrite a result after the tool ran. Truncation,
  *                      redaction, reformatting for a UI.
+ *   onTurnEnd        — rewrite the transcript after a turn completed, when the
+ *                      response and any tool results are already part of it.
+ *                      Context compression lives here: the request that just
+ *                      finished is the one whose usage describes how large the
+ *                      conversation has grown.
  *
  * Every hook is optional and every hook defaults to "change nothing". Each can
  * be given as a single function or an array; arrays run in order.
  *
  * Chaining rules differ by kind, because the right answer differs:
  *
- * - `onBeforeRequest` and `onToolResult` **chain**: the second hook sees the
- *   first one's output. Trimming and redacting are both transformations, and two
- *   of them composed is what callers expect.
+ * - `onBeforeRequest`, `onToolResult` and `onTurnEnd` **chain**: the second hook
+ *   sees the first one's output. Trimming and redacting are both
+ *   transformations, and two of them composed is what callers expect.
  * - `onToolCall` **short-circuits**: the first hook that returns a decision wins.
  *   A permission guard must not be overridable by a later hook that means to
  *   allow, so "deny" is final once said.
@@ -35,7 +40,13 @@ import { toResultMessage } from "../tools/results.js";
 import type { LLMRequest } from "../core/client.js";
 import type { AnyTool } from "../tools/definition.js";
 import type { ToolExecution } from "../tools/execute.js";
-import { copyMessages, type Message, type ToolCall, type ToolResult } from "../core/messages.js";
+import {
+  copyMessages,
+  type AssistantMessage,
+  type Message,
+  type ToolCall,
+  type ToolResult,
+} from "../core/messages.js";
 
 // ---------------------------------------------------------------------------
 // Hook signatures
@@ -132,11 +143,38 @@ export type ToolResultHook = (
   context: ToolResultContext,
 ) => ToolResult | void | undefined | Promise<ToolResult | void | undefined>;
 
+export interface TurnEndContext {
+  /** 1-based turn index within the run. */
+  turn: number;
+  /**
+   * The transcript as it stands after this turn: the assistant response, and
+   * every tool result the turn produced. This is what the next request would
+   * send, so it is also the right thing to measure.
+   */
+  messages: readonly Message[];
+  /** The response that ended this turn, with the usage the provider reported. */
+  message: AssistantMessage;
+  signal: AbortSignal | undefined;
+}
+
+/**
+ * Return a replacement transcript, or nothing to leave it unchanged.
+ *
+ * A replacement is persistent: it becomes the history the run continues from and
+ * the one `Agent` stores afterwards. Return the whole array, including the
+ * leading system message when there is one, because this array *is* the
+ * transcript from here on.
+ */
+export type TurnEndHook = (
+  context: TurnEndContext,
+) => readonly Message[] | void | undefined | Promise<readonly Message[] | void | undefined>;
+
 /** All hooks for a run. Omit it, or omit any member, to change nothing. */
 export interface RunHooks {
   onBeforeRequest?: BeforeRequestHook | readonly BeforeRequestHook[];
   onToolCall?: ToolCallHook | readonly ToolCallHook[];
   onToolResult?: ToolResultHook | readonly ToolResultHook[];
+  onTurnEnd?: TurnEndHook | readonly TurnEndHook[];
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +184,7 @@ export interface RunHooks {
 /** A hook threw. Carried out of the loop as a `hook` error rather than swallowed. */
 export class HookError extends Error {
   constructor(
-    readonly hook: "onBeforeRequest" | "onToolCall" | "onToolResult",
+    readonly hook: "onBeforeRequest" | "onToolCall" | "onToolResult" | "onTurnEnd",
     override readonly cause: unknown,
   ) {
     const detail = cause instanceof Error ? cause.message : String(cause);
@@ -174,6 +212,8 @@ export interface ResolvedHooks {
   toolCall(context: ToolCallContext): Promise<ToolCallDecision>;
   /** Run `onToolResult` in order. Returns the execution with the result applied. */
   toolResult(context: ToolResultContext): Promise<ToolResult>;
+  /** Run `onTurnEnd` in order. Returns the transcript to continue from. */
+  turnEnd(context: TurnEndContext): Promise<readonly Message[]>;
 }
 
 /** True when a hooks object was given and has at least one hook. */
@@ -182,7 +222,8 @@ export function hasHooks(hooks: RunHooks | undefined): boolean {
     hooks !== undefined &&
     (hooks.onBeforeRequest !== undefined ||
       hooks.onToolCall !== undefined ||
-      hooks.onToolResult !== undefined)
+      hooks.onToolResult !== undefined ||
+      hooks.onTurnEnd !== undefined)
   );
 }
 
@@ -192,6 +233,7 @@ export function resolveHooks(hooks: RunHooks | undefined): ResolvedHooks {
   const before = toArray(hooks.onBeforeRequest);
   const call = toArray(hooks.onToolCall);
   const after = toArray(hooks.onToolResult);
+  const ended = toArray(hooks.onTurnEnd);
 
   return {
     async beforeRequest(context, onReplaceHistory) {
@@ -242,6 +284,20 @@ export function resolveHooks(hooks: RunHooks | undefined): ResolvedHooks {
       }
       return result;
     },
+
+    async turnEnd(context) {
+      let messages = context.messages;
+      for (const hook of ended) {
+        let next: readonly Message[] | void | undefined;
+        try {
+          next = await hook({ ...context, messages });
+        } catch (thrown) {
+          throw new HookError("onTurnEnd", thrown);
+        }
+        if (next !== undefined) messages = next;
+      }
+      return messages;
+    },
   };
 }
 
@@ -254,6 +310,9 @@ const NO_HOOKS: ResolvedHooks = {
   },
   async toolResult(context) {
     return context.result;
+  },
+  async turnEnd(context) {
+    return context.messages;
   },
 };
 
