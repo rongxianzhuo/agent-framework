@@ -365,7 +365,8 @@ original `toolResult` image blocks, and followup requests replay them correctly.
 
 Set `AgentOptions.contextCompression` to a `ContextCompressionStrategy` object
 or a class implementing that interface. Omitting it or passing `null` disables
-compression; there is no built-in threshold, token estimator or summarizer.
+compression. `createSummarizingCompression()` supplies a threshold, a token
+signal and a summariser; the interface stays available for your own policy.
 
 ```ts
 import { Agent, type ContextCompressionStrategy } from "agent-framework";
@@ -423,6 +424,60 @@ messages, tool output and later hook edits are not counted yet. Use the current
 request to supplement that signal when necessary. Strategy model calls are
 external and do not add to the Agent's own request usage accounting. The low-level
 `run()` stays stateless; use its hooks directly for custom context management.
+
+### The bundled summary strategy
+
+`createSummarizingCompression()` returns a `ContextCompressionStrategy` that
+summarises the oldest part of the conversation once the latest request grows past
+a token threshold. It is an ordinary strategy, so nothing about `Agent` changes:
+
+```ts
+import { Agent, createSummarizingCompression } from "agent-framework";
+
+const compression = createSummarizingCompression({
+  client: summaryClient,       // any LLMClient; often a cheaper model
+  model: "gpt-4o-mini",        // the model that writes the summary
+  threshold: 200_000,          // compress at or above this many tokens
+  keepRecentMessages: 4,       // optional; trailing messages left verbatim
+});
+
+const agent = new Agent({ client, model: "gpt-4o", system: "Be helpful.", contextCompression: compression });
+```
+
+The trigger reads `inputTokens + outputTokens` from `lastRequest`. The current
+request's prompt does not include the reply that request just produced, and that
+reply stays in the context, so adding it gives a closer estimate of the next
+prompt. Cache reads are not added: `inputTokens` already contains them. When no
+usage was reported, the strategy does nothing rather than guess.
+
+`client` and `model` are both required and independent of the agent's own. A
+summary rarely needs the expensive model, and reusing the agent's client would
+report the summary call's own usage as the latest request, hiding how large the
+conversation had actually become. Requiring `model` keeps the cost of a summary
+visible in the configuration instead of inheriting it silently.
+
+The result is `[system, summary, ...kept]`. The summary is a single `user` message
+starting with `[Earlier conversation summary]`, placed directly after the system
+prompt. It is an ordinary message rather than part of the system prompt so that it
+survives `saveHistory()`, which drops system messages, and `replaceMessages()`,
+which takes the prompt separately. Because it is ordinary, the next compression
+folds it into the following summary, so the transcript never accumulates more than
+one.
+
+The cut is chosen so that the kept region never starts with a tool result whose
+call was dropped; the boundary moves back to the owning assistant message.
+
+The summary request is a plain conversation, not a rewritten one. It carries the
+agent's own system message, then the dropped messages exactly as they are, then a
+single `user` instruction asking for a summary. No tools are offered and nothing is
+carried over from a previous compression: each one is an independent request.
+Images and reasoning blocks travel unchanged, so the summariser sees what the
+conversation actually contained.
+
+A failed summary request leaves history untouched and the run continues. Losing a
+completed turn to a secondary request would be the worse outcome, so the strategy
+swallows the error and produces no summary. A threshold and `keepRecentMessages`
+are validated when the strategy is created.
 
 ## Five entry points
 
@@ -883,8 +938,9 @@ hooks: {
 }
 ```
 
-`shouldCompress` and `compressHistory` are application functions: the framework
-does not choose a threshold, estimate tokens or generate summaries. This works
+`shouldCompress` and `compressHistory` are application functions when you write
+your own strategy; `createSummarizingCompression()` covers the common case. A
+strategy written by hand chooses its own threshold and summary format. This works
 inside one `run()`, before each model request. Only `request.messages` replaces
 history; changes to model, tools or generation settings remain per-request.
 The replacement appears in `RunResult.messages`, `run_end`, and `Agent.messages`

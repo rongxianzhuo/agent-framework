@@ -78,6 +78,10 @@ export {
 export { run, type RunOptions, type RunResult } from "./runtime/run.js";
 export { Agent, type AgentInput, type AgentOptions, type AgentRunOptions } from "./runtime/agent.js";
 export type { CompressionContext, ContextCompressionStrategy, LastRequestInfo } from "./runtime/compression.js";
+export {
+  createSummarizingCompression,
+  type SummarizingCompressionOptions,
+} from "./runtime/summarizing-compression.js";
 
 // Hooks: the caller's interception points in a run
 export {

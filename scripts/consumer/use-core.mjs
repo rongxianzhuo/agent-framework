@@ -4,7 +4,7 @@
 // packed tarball by name. It exercises what an embedding agent actually does:
 // define a tool, run a multi-turn loop, intercept with hooks, handle a tool that
 // throws.
-import { Agent, run, defineTool, textResult } from "agent-framework";
+import { Agent, run, createSummarizingCompression, defineTool, textResult } from "agent-framework";
 import { fauxClient } from "agent-framework/faux";
 
 const readFile = defineTool({
@@ -116,6 +116,29 @@ await compressedAgent.run("first");
 await compressedAgent.run("second");
 if (compressions !== 1 || compressionClient.requests[1]?.messages.length !== 1) failures.push("Compression strategy did not replace history");
 if (compressedAgent.lastRequest?.usage?.inputTokens !== 20) failures.push("Latest request usage was not updated");
+
+const summarizeClient = fauxClient({ turns: [{ text: "The user introduced themselves as Alex." }] });
+const bundledClient = fauxClient({ turns: [
+  { text: "Hello Alex.", usage: { inputTokens: 200_000, outputTokens: 10, totalTokens: 200_010, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+  { text: "Still Alex.", usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+] });
+const bundledAgent = new Agent({
+  client: bundledClient, model: "demo", system: "Be brief.",
+  contextCompression: createSummarizingCompression({
+    client: summarizeClient, model: "cheap", threshold: 100_000, keepRecentMessages: 2,
+  }),
+});
+await bundledAgent.run("My name is Alex.");
+await bundledAgent.run("What is my name?");
+const bundledMessages = bundledClient.requests[1]?.messages ?? [];
+if (summarizeClient.requests.length !== 1) failures.push("Bundled strategy did not issue exactly one summary request");
+if (summarizeClient.requests[0]?.model !== "cheap") failures.push("Bundled strategy ignored the configured summary model");
+if (bundledMessages[0]?.role !== "system") failures.push("Bundled strategy dropped the system prompt");
+if (!String(bundledMessages[1]?.content[0]?.text).includes("The user introduced themselves")) {
+  failures.push("Bundled strategy did not put the summary after the system prompt");
+}
+if (bundledMessages.length !== 4) failures.push(`Bundled strategy did not shorten the transcript, got ${bundledMessages.length} messages`);
+if (bundledAgent.lastRequest?.usage?.inputTokens !== 30) failures.push("Bundled strategy leaked its own usage into lastRequest");
 
 export const problems = failures;
 if (failures.length > 0) {

@@ -13,10 +13,12 @@ import {
   defineTool,
   textResult,
   jsonResult,
+  createSummarizingCompression,
   MessageAccumulator,
   type AgentEvent,
   type AgentOptions,
   type ContextCompressionStrategy,
+  type SummarizingCompressionOptions,
   type Message,
   type BeforeRequestUpdate,
   type RunHooks,
@@ -50,6 +52,21 @@ const strategy: ContextCompressionStrategy = {
   shouldCompress: ({ lastRequest }) => lastRequest?.usage !== undefined,
   compress: async ({ messages }) => [...messages],
 };
+
+// The bundled strategy, as the guide presents it.
+const summarizingOptions: SummarizingCompressionOptions = {
+  client: fauxClient({ turns: [{ text: "summary" }] }),
+  model: "gpt-4o-mini",
+  threshold: 200_000,
+  keepRecentMessages: 4,
+};
+const bundled: ContextCompressionStrategy = createSummarizingCompression(summarizingOptions);
+export const compressedAgent = new Agent({
+  client: fauxClient({ turns: [{ text: "hello" }] }),
+  model: "gpt-4o-mini",
+  system: "Be brief.",
+  contextCompression: bundled,
+});
 
 export function agentOptions(historyFile: string): AgentOptions {
   return {

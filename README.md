@@ -313,7 +313,34 @@ for followup questions and can be removed by your context compression policy.
 
 ## Context compression
 
-`Agent` optionally accepts an application-defined strategy:
+`Agent` optionally accepts a strategy. A bundled one is included:
+
+```ts
+import { createSummarizingCompression } from "agent-framework";
+
+const agent = new Agent({
+  client,
+  model: "gpt-4o",
+  system: "Be helpful.",
+  contextCompression: createSummarizingCompression({
+    client: summaryClient,   // often a cheaper model
+    model: "gpt-4o-mini",    // the model that writes the summary
+    threshold: 200_000,      // compress at or above this many tokens
+    keepRecentMessages: 4,   // trailing messages left verbatim
+  }),
+});
+```
+
+Once the latest request reaches the threshold, the oldest part of the conversation
+is replaced by one summary message placed directly after the system prompt, and the
+recent messages are kept verbatim. The trigger compares `inputTokens + outputTokens`
+from the previous request, since the reply it produced stays in the context.
+A summary request that fails leaves history untouched and the run continues.
+The summary is an ordinary message, so `historyFile` persists it and later
+compressions fold it into the next summary. Omit `contextCompression` or set it to
+`null` to disable compression.
+
+You can also supply your own strategy:
 
 ```ts
 const agent = new Agent({
