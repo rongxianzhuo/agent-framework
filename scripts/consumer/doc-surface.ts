@@ -19,6 +19,7 @@ import {
   type AgentOptions,
   type ContextCompressionStrategy,
   type SummarizingCompressionOptions,
+  type CompressionReport,
   type Message,
   type BeforeRequestUpdate,
   type RunHooks,
@@ -59,6 +60,11 @@ const summarizingOptions: SummarizingCompressionOptions = {
   model: "gpt-4o-mini",
   threshold: 200_000,
   keepRecentMessages: 4,
+  onCompress: ({ summary, droppedMessages, keptMessages }) => {
+    const report: CompressionReport = { summary, droppedMessages, keptMessages };
+    console.log(report.droppedMessages, report.keptMessages);
+  },
+  onError: error => console.warn(error.message),
 };
 const bundled: ContextCompressionStrategy = createSummarizingCompression(summarizingOptions);
 export const compressedAgent = new Agent({

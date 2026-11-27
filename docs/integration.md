@@ -438,6 +438,10 @@ const compression = createSummarizingCompression({
   model: "gpt-4o-mini",        // the model that writes the summary
   threshold: 200_000,          // compress at or above this many tokens
   keepRecentMessages: 4,       // optional; trailing messages left verbatim
+  onCompress: ({ summary, droppedMessages, keptMessages }) => {
+    log.info(`summarised ${droppedMessages} messages into ${summary.length} characters`);
+  },
+  onError: error => log.warn("context compression failed", error),
 });
 
 const agent = new Agent({ client, model: "gpt-4o", system: "Be helpful.", contextCompression: compression });
@@ -475,8 +479,13 @@ conversation actually contained.
 
 A failed summary request leaves history untouched and the run continues. Losing a
 completed turn to a secondary request would be the worse outcome, so the strategy
-swallows the error and produces no summary. A threshold and `keepRecentMessages`
-are validated when the strategy is created.
+swallows the error and produces no summary. `onError` is how you observe those
+failures — it fires for a failed request, an error stop reason and an empty reply.
+`onCompress` fires after a replacement is built, with the summary and the message
+counts it replaced. Both are notifications: the return values are ignored, and a
+callback that throws does not fail the run, because what it reports on has already
+happened. A threshold, `keepRecentMessages` and the two callbacks are validated
+when the strategy is created.
 
 ## Five entry points
 

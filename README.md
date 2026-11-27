@@ -338,9 +338,10 @@ summary message placed directly after the system prompt, and the recent messages
 are kept verbatim. Measuring at that moment uses the exact cost of the request that
 just finished, so the history `Agent` stores and `historyFile` persists is already
 the compressed one. A summary request that fails leaves history untouched and the
-run continues. The summary is an ordinary message, so `historyFile` persists it and
-later compressions fold it into the next summary. Omit `contextCompression` or set
-it to `null` to disable compression.
+run continues; `onError` reports it and `onCompress` reports each successful
+replacement, for logging or a UI. The summary is an ordinary message, so
+`historyFile` persists it and later compressions fold it into the next summary.
+Omit `contextCompression` or set it to `null` to disable compression.
 
 You can also supply your own strategy:
 

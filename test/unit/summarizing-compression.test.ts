@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   Agent,
   createSummarizingCompression,
+  type CompressionReport,
   type Message,
   type Usage,
 } from "../../src/index.js";
@@ -163,6 +164,78 @@ describe("createSummarizingCompression", () => {
     const messages = [system, user("a"), assistant("b"), user("c")];
     const strategy = createSummarizingCompression({ client, model: "summary-model", threshold: 10, keepRecentMessages: 1 });
     expect(await strategy.compress(context(messages, usage(5_000)))).toEqual(messages);
+  });
+
+  it("reports a successful compression with what it replaced", async () => {
+    const reports: CompressionReport[] = [];
+    const strategy = createSummarizingCompression({
+      client: summaryClient("the summary"), model: "summary-model", threshold: 10, keepRecentMessages: 1,
+      onCompress: report => { reports.push(report); },
+    });
+    await strategy.compress(context([system, user("a"), assistant("b"), user("c")], usage(5_000)));
+    expect(reports).toEqual([{ summary: "the summary", droppedMessages: 2, keptMessages: 1 }]);
+  });
+
+  it("does not report a compression when nothing could be dropped", async () => {
+    const reports: CompressionReport[] = [];
+    const strategy = createSummarizingCompression({
+      client: summaryClient(), model: "summary-model", threshold: 10, keepRecentMessages: 4,
+      onCompress: report => { reports.push(report); },
+    });
+    await strategy.compress(context([system, user("a")], usage(5_000)));
+    expect(reports).toEqual([]);
+  });
+
+  it.each([
+    ["a failed request", () => fauxClient({ turns: [{ error: { kind: "network" as const, message: "offline" } }], onExhausted: "repeatLast" })],
+    ["an error stop reason", () => fauxClient({ turns: [{ text: "boom", stopReason: "error" as const }], onExhausted: "repeatLast" })],
+    ["an empty summary", () => summaryClient("   ")],
+  ])("reports %s through onError", async (_label, build) => {
+    const errors: Error[] = [];
+    const messages = [system, user("a"), assistant("b"), user("c")];
+    const strategy = createSummarizingCompression({
+      client: build(), model: "summary-model", threshold: 10, keepRecentMessages: 1,
+      onError: error => { errors.push(error); },
+    });
+    expect(await strategy.compress(context(messages, usage(5_000)))).toEqual(messages);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("does not report an error when no compression was attempted", async () => {
+    const errors: Error[] = [];
+    const strategy = createSummarizingCompression({
+      client: summaryClient(), model: "summary-model", threshold: 10, keepRecentMessages: 4,
+      onError: error => { errors.push(error); },
+    });
+    await strategy.compress(context([system, user("a")], usage(5_000)));
+    expect(errors).toEqual([]);
+  });
+
+  it("keeps the outcome when a callback throws", async () => {
+    const client = summaryClient("the summary");
+    const messages = [system, user("a"), assistant("b"), user("c")];
+    const strategy = createSummarizingCompression({
+      client, model: "summary-model", threshold: 10, keepRecentMessages: 1,
+      onCompress: () => { throw new Error("logger failed"); },
+    });
+    const compressed = await strategy.compress(context(messages, usage(5_000)));
+    expect(compressed).not.toEqual(messages);
+    expect(JSON.stringify(compressed)).toContain("the summary");
+
+    const failing = createSummarizingCompression({
+      client: fauxClient({ turns: [{ error: { kind: "network" as const, message: "offline" } }], onExhausted: "repeatLast" }),
+      model: "summary-model", threshold: 10, keepRecentMessages: 1,
+      onError: () => { throw new Error("logger failed"); },
+    });
+    expect(await failing.compress(context(messages, usage(5_000)))).toEqual(messages);
+  });
+
+  it("rejects a non-function callback at creation time", () => {
+    const client = summaryClient();
+    // @ts-expect-error onCompress must be a function
+    expect(() => createSummarizingCompression({ client, model: "m", threshold: 10, onCompress: "log" })).toThrow("onCompress must be a function");
+    // @ts-expect-error onError must be a function
+    expect(() => createSummarizingCompression({ client, model: "m", threshold: 10, onError: "log" })).toThrow("onError must be a function");
   });
 
   it("rejects invalid configuration at creation time", () => {

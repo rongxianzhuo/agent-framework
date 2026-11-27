@@ -80,6 +80,7 @@ export { Agent, type AgentInput, type AgentOptions, type AgentRunOptions } from 
 export type { CompressionContext, ContextCompressionStrategy, LastRequestInfo } from "./runtime/compression.js";
 export {
   createSummarizingCompression,
+  type CompressionReport,
   type SummarizingCompressionOptions,
 } from "./runtime/summarizing-compression.js";
 

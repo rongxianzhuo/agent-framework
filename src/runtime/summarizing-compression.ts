@@ -2,6 +2,16 @@ import type { LLMClient, LLMRequest } from "../core/client.js";
 import type { ContentBlock, Message } from "../core/messages.js";
 import type { ContextCompressionStrategy } from "./compression.js";
 
+/** What a successful compression replaced, reported to `onCompress`. */
+export interface CompressionReport {
+  /** The summary text that replaced the dropped messages. */
+  summary: string;
+  /** How many messages the summary replaced. */
+  droppedMessages: number;
+  /** How many trailing messages were kept verbatim. */
+  keptMessages: number;
+}
+
 /** Configuration for the bundled summarising strategy. */
 export interface SummarizingCompressionOptions {
   /**
@@ -20,6 +30,19 @@ export interface SummarizingCompressionOptions {
    * the current user turn never joins the part that gets summarised.
    */
   keepRecentMessages?: number;
+  /**
+   * Called after a compression replaced part of the transcript, for logging or
+   * display. It is a notification: the return value is ignored, and a callback
+   * that throws does not fail the run, because the work it reports on already
+   * succeeded.
+   */
+  onCompress?: (report: CompressionReport) => void;
+  /**
+   * Called when a summary could not be produced and history was left unchanged,
+   * so a silent failure becomes visible. It is a notification: the return value
+   * is ignored and a callback that throws does not fail the run.
+   */
+  onError?: (error: Error) => void;
 }
 
 /** Prefix that marks the summary inside the transcript. */
@@ -56,9 +79,11 @@ const SUMMARY_INSTRUCTION = [
  * exactly as they were, then one trailing instruction. The model reads the
  * conversation as it happened under the same instructions the agent ran under.
  *
- * Failures are silent by design: a summary request that fails leaves history
- * untouched and the run continues. Losing a completed turn to a secondary
- * request would be the worse outcome.
+ * Failures never undo a completed turn: a summary request that fails leaves
+ * history untouched and the run continues. Losing a turn to a secondary request
+ * would be the worse outcome. `onError` reports those failures and `onCompress`
+ * reports successful replacements; both are notifications that cannot change
+ * what happened.
  */
 export function createSummarizingCompression(
   options: SummarizingCompressionOptions,
@@ -67,6 +92,8 @@ export function createSummarizingCompression(
   const threshold = requireThreshold(options.threshold);
   const keepRecent = requireKeepRecent(options.keepRecentMessages);
   const model = requireModel(options.model);
+  const onCompress = requireCallback<CompressionReport>(options.onCompress, "onCompress");
+  const onError = requireCallback<Error>(options.onError, "onError");
 
   return {
     shouldCompress(context) {
@@ -92,10 +119,14 @@ export function createSummarizingCompression(
           conversation: dropped,
           signal: context.signal,
         });
-      } catch {
+      } catch (thrown) {
+        onError(toError(thrown));
         return messages;
       }
-      if (summary.length === 0) return messages;
+      if (summary.length === 0) {
+        onError(new Error("The summary request returned no text."));
+        return messages;
+      }
 
       const replacement: Message[] = [];
       if (system !== undefined) replacement.push(system);
@@ -104,6 +135,7 @@ export function createSummarizingCompression(
         content: [{ type: "text", text: `${SUMMARY_PREFIX}\n${summary}` }],
       });
       replacement.push(...kept);
+      onCompress({ summary, droppedMessages: dropped.length, keptMessages: kept.length });
       return replacement;
     },
   };
@@ -166,6 +198,31 @@ async function requestSummary(client: LLMClient, input: SummaryRequest): Promise
 
 function textOf(content: readonly ContentBlock[]): string {
   return content.map((block) => (block.type === "text" ? block.text : "")).join("");
+}
+
+/**
+ * Wrap an optional callback so it can only observe, never change, the outcome.
+ *
+ * Reporting happens after the decision is already made, so a callback that
+ * throws is swallowed: letting it escape would turn a completed compression, or
+ * an already-handled summary failure, into a failed run.
+ */
+function requireCallback<T>(callback: ((value: T) => void) | undefined, name: string): (value: T) => void {
+  if (callback === undefined) return () => {};
+  if (typeof callback !== "function") {
+    throw new TypeError(`${name} must be a function.`);
+  }
+  return (value: T) => {
+    try {
+      callback(value);
+    } catch {
+      // A notification callback cannot change the outcome it reports on.
+    }
+  };
+}
+
+function toError(thrown: unknown): Error {
+  return thrown instanceof Error ? thrown : new Error(String(thrown));
 }
 
 function requireClient(client: LLMClient | undefined): LLMClient {
