@@ -253,6 +253,38 @@ tool-call/result pairing before accepting history. Concurrent runs or history
 edits during a run are rejected; use separate instances for separate conversations.
 Input, rendering, storage configuration and retry policy remain application responsibilities.
 
+### `complete()` — one conversation that leaves no trace
+
+`agent.complete(messages, options?)` runs a whole conversation from a transcript
+you supply and returns the result, reusing the agent's client, model, tools and
+sampling settings. Nothing about the agent changes: its `messages`, its
+`lastRequest` and its `historyFile` are all untouched, and the agent's default
+`hooks` and `onEvent` do not run.
+
+```ts
+const result = await agent.complete([
+  { role: "system", content: [{ type: "text", text: "You summarise pull requests." }] },
+  { role: "user", content: [{ type: "text", text: diffText }] },
+]);
+const summary = result.messages.at(-1);
+```
+
+The whole loop applies, so a response that asks for tools gets them executed and
+fed back until the model stops asking. This is a stateless `run()`, not a single
+request — the point is the shared configuration, not a narrower execution.
+
+`messages` is used exactly as given, system prompt included. The agent's own
+`system` is not prepended and no system message is added when the transcript has
+none, so the prompt this completion runs under is the one you wrote.
+
+Context compression is off even when the agent has `contextCompression`: the
+transcript is discarded after the call, so compressing it would spend a summary
+request on history nobody will read. If a completion needs hooks or events, pass
+them per call; they apply to this call only.
+
+Because it reads no instance state, `complete()` may be called while `run()` is in
+flight. Two concurrent `run()` calls remain rejected.
+
 ## JSON history persistence
 
 Pass `historyFile` when constructing an Agent:

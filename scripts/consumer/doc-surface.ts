@@ -23,6 +23,7 @@ import {
   type Message,
   type BeforeRequestUpdate,
   type RunHooks,
+  type RunResult,
   type LLMClient,
   type LLMRequest,
   type LLMEvent,
@@ -102,6 +103,13 @@ export async function useAgent(historyFile: string): Promise<void> {
   agent.replaceMessages(agent.system, transcript.slice(1));
   agent.reset(); // back to the current system prompt
   console.log(agent.lastRequest?.usage, agent.lastRequest?.model);
+
+  // A stateless conversation: same configuration, no effect on the agent.
+  const side: RunResult = await agent.complete([
+    { role: "system", content: [{ type: "text", text: "You summarise diffs." }] },
+    { role: "user", content: [{ type: "text", text: "diff" }] },
+  ], { maxTurns: 3 });
+  console.log(side.messages.at(-1), side.usage, side.stopReason);
 }
 
 // The event table in the guide: every member has to exist and be narrowable.

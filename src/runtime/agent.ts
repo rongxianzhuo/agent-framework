@@ -19,6 +19,15 @@ export interface AgentOptions extends Omit<RunOptions, "messages" | "signal"> {
 /** Overrides for one execution; omitted fields keep the agent's defaults. */
 export type AgentRunOptions = Omit<RunOptions, "client" | "model" | "messages" | "tools">;
 
+/**
+ * Overrides for `complete()`.
+ *
+ * The shape matches `AgentRunOptions`, but the defaults differ: the agent's own
+ * `hooks` and `onEvent` are not inherited, so a stateless completion never runs
+ * the conversation's interception points or reports into its event stream.
+ */
+export type AgentCompleteOptions = AgentRunOptions;
+
 /** A text input or structured user content, including images. */
 export type AgentInput = string | readonly ContentBlock[];
 
@@ -30,6 +39,7 @@ export type AgentInput = string | readonly ContentBlock[];
  */
 export class Agent {
   readonly #defaults: Omit<RunOptions, "messages" | "signal">;
+  readonly #client: LLMClient;
   #system: string;
   readonly #compression: ContextCompressionStrategy | null | undefined;
   readonly #historyFile: string | undefined;
@@ -40,6 +50,7 @@ export class Agent {
   constructor({ system, contextCompression, historyFile, ...defaults }: AgentOptions) {
     const prompt = requireSystemString(system, "new Agent()");
     const client = defaults.client;
+    this.#client = client;
     this.#defaults = {
       ...defaults,
       client: { name: client.name, stream: (request, options) => this.#stream(client, request, options) },
@@ -147,6 +158,32 @@ export class Agent {
     } finally {
       this.#running = false;
     }
+  }
+
+  /**
+   * Run one conversation from a transcript the caller supplies, without touching
+   * this agent's own conversation.
+   *
+   * A stateless `run()` that reuses the agent's client, model, tools and sampling
+   * settings. The whole loop applies, so a response that asks for tools gets them
+   * executed and fed back until the model stops asking. What does not apply is
+   * anything tied to this instance's state: `messages` and `lastRequest` are
+   * untouched, compression is off, and the agent's default `hooks` and `onEvent`
+   * are not inherited. Pass them per call if this completion needs them.
+   *
+   * `messages` is used as given, system prompt included: the agent's own `system`
+   * is not prepended and no system message is added when the transcript has none.
+   * The same idle check as `run()` does not apply, so this may be called while the
+   * agent is running.
+   */
+  async complete(messages: readonly Message[], options: AgentCompleteOptions = {}): Promise<RunResult> {
+    const { hooks: _defaultHooks, onEvent: _defaultOnEvent, ...defaults } = this.#defaults;
+    return run({
+      ...defaults,
+      ...options,
+      client: this.#client,
+      messages: copyMessages(messages),
+    });
   }
 
   #compressionHooks(hooks: RunHooks | undefined, strategy: ContextCompressionStrategy): RunHooks {

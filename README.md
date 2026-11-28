@@ -213,6 +213,23 @@ await save(result.messages);
 `run` returns `{ messages, usage, turns, stopReason, error? }`. It does not throw
 for model or tool failures — those come back in the result.
 
+When you want a conversation that reuses the agent's configuration without
+becoming part of its own conversation, use `agent.complete(messages)`:
+
+```ts
+const result = await agent.complete([
+  { role: "system", content: [{ type: "text", text: "You summarise pull requests." }] },
+  { role: "user", content: [{ type: "text", text: diffText }] },
+]);
+const summary = result.messages.at(-1);
+```
+
+It runs the same loop with the agent's client, model and tools, and returns the
+same `RunResult`, but its `messages`, `lastRequest` and `historyFile` are untouched,
+and the agent's default `hooks` and `onEvent` do not run. The transcript is used
+exactly as given, so its system prompt is the one in effect. Context compression
+is skipped: the transcript is thrown away, so summarising it would waste a request.
+
 Each definition keeps its own argument type, which is why a collection holding
 tools of different shapes is typed `AnyTool[]` (`AnyTool` is `ToolDefinition<never>`).
 A concrete tool does not fit `ToolDefinition<unknown>`, because the argument
